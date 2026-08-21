@@ -1,0 +1,305 @@
+# GitHub Actions workflow reference: https://docs.github.com/en/actions
+# Commit SHA pinned for security - update with care
+# Last SHA update: 2026-08-21
+---
+name: 'Issue Triage & Assignment'
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: 'AI Triage Analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 'Checkout for context'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: 'Extract Issue Context'
+        id: issue-context
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          # Untrusted fields (title/body/labels/author) go through env vars,
+          # then jq encodes them safely into JSON.
+          jq -n \
+            --arg number "${{ github.event.issue.number }}" \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY" \
+            --arg labels "$ISSUE_LABELS" \
+            --arg author "$ISSUE_AUTHOR" \
+            --arg created_at "${{ github.event.issue.created_at }}" \
+            --arg state "${{ github.event.issue.state }}" \
+            '{number: ($number | tonumber), title: $title, body: $body,
+              labels: $labels, author: $author, created_at: $created_at, state: $state}' \
+            > issue_context.json
+          echo "Context extracted for issue #${{ github.event.issue.number }}"
+
+      - name: 'AI Analysis'
+        id: ai-analysis
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_MODEL: ${{ secrets.AI_API_MODEL }}
+          AI_API_BASEURL: ${{ secrets.AI_API_BASEURL }}
+        run: |
+          if [ -z "$AI_API_KEY" ]; then
+            echo "AI API key not configured, using fallback analysis"
+            # 使用基于规则的默认分类
+            TITLE=$(cat issue_context.json | jq -r '.title')
+            TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
+
+            CATEGORY="feature"
+            if echo "$TITLE_LOWER" | grep -qE '\[bug\]|\[fix\]|bug|fix'; then
+              CATEGORY="bug"
+            elif echo "$TITLE_LOWER" | grep -qE '\[refactor\]|refactor'; then
+              CATEGORY="refactor"
+            elif echo "$TITLE_LOWER" | grep -qE '\[doc\]|document'; then
+              CATEGORY="documentation"
+            elif echo "$TITLE_LOWER" | grep -qE '\[test\]|test'; then
+              CATEGORY="test"
+            fi
+
+            jq -n \
+              --arg category "$CATEGORY" \
+              --argjson priority '"medium"' \
+              --argjson complexity '"moderate"' \
+              --argjson estimated_hours 4 \
+              --argjson milestone_suggestion '"backlog"' \
+              '{
+                category: $category,
+                priority: $priority,
+                complexity: $complexity,
+                estimated_hours: $estimated_hours,
+                milestone_suggestion: $milestone_suggestion,
+                required_labels: ["triaged", "needs-review"],
+                related_areas: ["unspecified"],
+                acceptance_criteria_draft: ["待人工审查确认具体需求"],
+                dependencies: [],
+                risk_assessment: "待人工评估"
+              }' > analysis_result.json
+          else
+            echo "Calling AI API for analysis..."
+            ISSUE_TITLE=$(cat issue_context.json | jq -r '.title')
+            ISSUE_BODY=$(cat issue_context.json | jq -r '.body')
+            ISSUE_AUTHOR=$(cat issue_context.json | jq -r '.author')
+
+            # 构建 API 请求体（使用 jq 避免引号问题）
+            REQUEST_BODY=$(jq -n \
+              --arg model "$AI_API_MODEL" \
+              --arg title "$ISSUE_TITLE" \
+              --arg author "$ISSUE_AUTHOR" \
+              --arg body "$ISSUE_BODY" \
+              '{
+                model: $model,
+                messages: [
+                  {
+                    role: "system",
+                    content: "你是一个 GitHub Issue 分类专家。请分析以下 Issue 并返回 JSON 格式的分类信息。请用简体中文回复。"
+                  },
+                  {
+                    role: "user",
+                    content: "Issue 标题: \($title)\nIssue 作者: \($author)\nIssue 内容:\n\($body)\n\n请返回以下格式的 JSON（不要包含任何其他文字、markdown 代码块标记或其他内容，直接返回纯 JSON）：\n{\n  \"category\": \"feature(新功能)|bug(缺陷)|refactor(重构)|documentation(文档)|test(测试)|security(安全)|performance(性能)\",\n  \"priority\": \"critical(紧急)|high(高)|medium(中)|low(低)\",\n  \"complexity\": \"trivial(简单)|simple(简单)|moderate(中等)|complex(复杂)|expert(专家级)\",\n  \"estimated_hours\": 预估小时数(数字),\n  \"milestone_suggestion\": \"建议的里程碑版本\",\n  \"required_labels\": [\"标签1\", \"标签2\"],\n  \"related_areas\": [\"相关的代码模块或包\"],\n  \"acceptance_criteria_draft\": [\"验收标准1\", \"验收标准2\"],\n  \"dependencies\": [\"依赖的其他 Issue 或外部因素\"],\n  \"risk_assessment\": \"风险评估描述\"\n}"
+                  }
+                ],
+                reasoning_effort: "low",
+                temperature: 0.3,
+                max_tokens: 1000
+              }')
+
+            # 提取 AI 回复内容（curl 失败/HTTP 错误/空响应时回退）
+            RESPONSE=$(curl -sS --max-time 60 -w '\n%{http_code}' -X POST "${AI_API_BASEURL}/chat/completions" \
+              -H "Authorization: Bearer ${AI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$REQUEST_BODY" || echo -e "\n000")
+            HTTP_CODE=$(printf '%s' "$RESPONSE" | tail -n1)
+            BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "AI API returned HTTP $HTTP_CODE, using fallback"
+              echo "$BODY" | head -c 500 || true
+              AI_CONTENT="{}"
+            else
+              # -e 处理转义；控制字符已被 jq 规范化，避免下游 parse error
+              AI_CONTENT=$(echo "$BODY" | jq -er '.choices[0].message.content // empty' 2>/dev/null || echo "{}")
+            fi
+
+            # 清理可能的 markdown 代码块标记；剥离 C0 控制字符（除 JSON 合法的 \t）
+            AI_CONTENT=$(echo "$AI_CONTENT" | sed 's/^```json//;s/```$//;s/^```//;s/```$//' | tr -d '\n' | tr -d '\000-\010\013-\037' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+            # 验证 JSON 格式
+            if echo "$AI_CONTENT" | jq -e . > /dev/null 2>&1; then
+              echo "$AI_CONTENT" > analysis_result.json
+            else
+              echo "AI response is not valid JSON, using fallback"
+              echo "Raw content: $AI_CONTENT"
+              jq -n '{
+                category: "feature",
+                priority: "medium",
+                complexity: "moderate",
+                estimated_hours: 4,
+                milestone_suggestion: "backlog",
+                required_labels: ["triaged", "needs-review"],
+                related_areas: ["unspecified"],
+                acceptance_criteria_draft: ["AI 分析结果格式错误，待人工审查"],
+                dependencies: [],
+                risk_assessment: "待人工评估"
+              }' > analysis_result.json
+            fi
+          fi
+
+          echo "=== Analysis Result ==="
+          cat analysis_result.json
+
+      - name: 'Parse Analysis Result'
+        id: analysis-result
+        run: |
+          # 多行值必须使用 heredoc 分隔符语法写入 GITHUB_OUTPUT
+          {
+            echo 'result<<ANALYSIS_EOF'
+            cat analysis_result.json
+            echo 'ANALYSIS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 'Apply Labels & Milestones'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          ANALYSIS_RESULT: '${{ steps.analysis-result.outputs.result }}'
+        with:
+          script: |
+            const result = JSON.parse(process.env.ANALYSIS_RESULT);
+            const issue = context.payload.issue;
+
+            // 构建标签列表
+            const labels = [];
+
+            // 添加分类标签
+            if (result.category && !result.category.includes('未分类')) {
+              labels.push(result.category);
+            }
+
+            // 添加优先级标签
+            if (result.priority) {
+              labels.push(result.priority);
+            }
+
+            // 添加 AI 建议的标签
+            if (result.required_labels && Array.isArray(result.required_labels)) {
+              labels.push(...result.required_labels);
+            }
+
+            // Only apply labels that currently exist in the repository.
+            // AI output is untrusted and the repository label set can drift;
+            // addLabels rejects missing labels and would otherwise fail triage.
+            if (labels.length > 0) {
+              const repoLabels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+              const available = new Set(repoLabels.map(label => label.name));
+              const applicable = [...new Set(labels)].filter(label => available.has(label));
+              const missing = [...new Set(labels)].filter(label => !available.has(label));
+
+              if (missing.length > 0) {
+                core.warning(`Skipped undefined repository labels: ${missing.join(', ')}`);
+              }
+
+              if (applicable.length === 0) return;
+
+              await github.rest.issues.addLabels({
+                issue_number: issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: applicable
+              });
+            }
+
+      - name: 'Create Analysis Comment'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          ANALYSIS_RESULT: '${{ steps.analysis-result.outputs.result }}'
+        with:
+          script: |
+            const result = JSON.parse(process.env.ANALYSIS_RESULT);
+            const issue = context.payload.issue;
+
+            const comment = `
+            ## 🤖 AI Triage 分析
+
+            | 维度 | 分析结果 |
+            |------|----------|
+            | **分类** | \`${result.category || '未分类'}\` |
+            | **优先级** | \`${result.priority || '未设定'}\` |
+            | **复杂度** | \`${result.complexity || '未评估'}\` |
+            | **预估时间** | \`${result.estimated_hours || '?'}\` 小时 |
+            | **建议里程碑** | \`${result.milestone_suggestion || '未指定'}\` |
+
+            ### 📋 建议的验收标准
+            ${(result.acceptance_criteria_draft || ['待人工确认']).map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+            ### 🔗 相关代码区域
+            \`${(result.related_areas || ['未指定']).join('`, `')}\`
+
+            ### ⚠️ 风险评估
+            ${result.risk_assessment || '待人工评估'}
+
+            ### 📌 依赖项
+            ${(result.dependencies || []).length > 0 ? result.dependencies.join(', ') : '无'}
+
+            ---
+            *由 AI 自动分析*
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: 'Request Human Confirmation'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            const confirmComment = `
+            ## ⏳ 等待人工确认
+
+            请审查上述 AI 分析结果并确认：
+
+            ### ✅ 同意分析
+            React 👍 表示同意
+
+            ### 🔄 需要调整
+            评论说明需要调整的内容
+
+            ### 📝 开始开发
+            确认后，添加 \`/ready-for-dev\` 开始开发
+
+            ---
+            *自动化工作流 | AI + GitHub Actions*
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: confirmComment
+            });

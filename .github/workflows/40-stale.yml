@@ -1,0 +1,38 @@
+# GitHub Actions workflow reference: https://docs.github.com/en/actions
+---
+name: 'Stale Issue & PR Management'
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # daily at 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: stale-bot
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    name: 'Mark stale / close'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 'Run stale'
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93  # v11.0.0
+        with:
+          days-before-stale: 60
+          days-before-pr-stale: 30
+          days-before-close: 7
+          stale-issue-message: '此 issue 已 60 天无活动。如仍需处理，请更新内容或移除 `stale` 标签。'
+          close-issue-message: '由于持续无活动，此 issue 已被关闭。可随时重新打开。'
+          stale-pr-message: '此 PR 已 30 天无活动。请更新或关闭。'
+          close-pr-message: '由于持续无活动，此 PR 已被关闭。'
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          exempt-issue-labels: 'in-progress'
+          exempt-pr-labels: 'in-progress'
+          operations-per-run: 30

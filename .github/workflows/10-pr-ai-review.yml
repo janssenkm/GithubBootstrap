@@ -1,0 +1,64 @@
+# Pull-request quality checks for template and generated projects
+name: 'PR Quality'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-quality-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pull-request-quality:
+    name: 'Pull Request Quality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 'Check patch formatting'
+        run: git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+      - name: 'Check required template assets'
+        shell: bash
+        run: |
+          required=(
+            README.md
+            CONTRIBUTING.md
+            AGENTS.md
+            BOOTSTRAP.md
+            .github/CODEOWNERS
+            .github/PULL_REQUEST_TEMPLATE.md
+            .github/WORKFLOWS.md
+            .github/dependabot.yml
+            .github/settings.yml
+            .github/scripts/check-commit-attribution.sh
+            .github/ISSUE_TEMPLATE/bug.md
+            .github/ISSUE_TEMPLATE/feature.md
+            .github/ISSUE_TEMPLATE/refactor.md
+            .github/workflows/00-baseline-check.yml
+            .github/workflows/00-issue-ai-triage.yml
+            .github/workflows/01-ai-development-workflow.yml
+            .github/workflows/05-commit-lint.yml
+            .github/workflows/10-pr-ai-review.yml
+            .github/workflows/20-ci-build-test.yml
+            .github/workflows/30-milestone-acceptance.yml
+            .github/workflows/40-stale.yml
+          )
+
+          for path in "${required[@]}"; do
+            test -f "$path" || { echo "Missing required file: $path"; exit 1; }
+          done
+
+          test -x .github/scripts/check-commit-attribution.sh || {
+            echo 'Required script is not executable: .github/scripts/check-commit-attribution.sh'
+            exit 1
+          }

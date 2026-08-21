@@ -1,0 +1,9 @@
+# Code Owners Configuration
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-codeowners
+#
+# A template cannot know the owners of repositories generated from it, so no
+# ownership rule is enabled here. After generation, replace this guidance with
+# project users or teams, for example:
+#
+# * @your-handle
+# /docs/ @your-organization/docs-team

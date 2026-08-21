@@ -1,0 +1,20 @@
+# Dependabot Configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot-version-updates-file
+
+version: 2
+updates:
+  # Keep shared workflow actions current. Generated projects should add entries
+  # for their language and package ecosystems.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci:"
+      include: "scope"

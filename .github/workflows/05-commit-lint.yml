@@ -1,0 +1,43 @@
+# GitHub Actions workflow reference: https://docs.github.com/en/actions
+---
+name: 'Lint Commit Messages'
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: commitlint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commitlint:
+    name: 'Commitlint'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 'Run commitlint'
+        id: lint
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed  # v6
+        continue-on-error: true
+
+      - name: 'Comment if non-conforming'
+        if: steps.lint.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: '⚠️ Commit message 不符合 Conventional Commits（建议，非阻塞）。\n\n推荐前缀: `feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `ci:` / `chore:`。'
+            });

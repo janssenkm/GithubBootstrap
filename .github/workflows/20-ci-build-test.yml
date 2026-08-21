@@ -1,0 +1,132 @@
+# Required language-neutral checks for template and generated projects
+name: 'CI: Configuration Validation'
+
+on:
+  push:
+    branches: [main, develop, 'dev/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  configuration-validation:
+    name: 'Configuration Validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 'Validate YAML syntax'
+        shell: bash
+        run: |
+          python3 -c "import yaml; yaml.safe_load(open('.github/dependabot.yml'))"
+          for workflow in .github/workflows/*.yml; do
+            python3 -c "import sys, yaml; yaml.safe_load(open(sys.argv[1]))" "$workflow"
+          done
+
+      - name: 'Check required template assets'
+        shell: bash
+        run: |
+          required=(
+            README.md
+            CONTRIBUTING.md
+            AGENTS.md
+            BOOTSTRAP.md
+            .github/CODEOWNERS
+            .github/PULL_REQUEST_TEMPLATE.md
+            .github/WORKFLOWS.md
+            .github/dependabot.yml
+            .github/settings.yml
+            .github/scripts/check-commit-attribution.sh
+            .github/ISSUE_TEMPLATE/bug.md
+            .github/ISSUE_TEMPLATE/feature.md
+            .github/ISSUE_TEMPLATE/refactor.md
+            .github/workflows/00-baseline-check.yml
+            .github/workflows/00-issue-ai-triage.yml
+            .github/workflows/01-ai-development-workflow.yml
+            .github/workflows/05-commit-lint.yml
+            .github/workflows/10-pr-ai-review.yml
+            .github/workflows/20-ci-build-test.yml
+            .github/workflows/30-milestone-acceptance.yml
+            .github/workflows/40-stale.yml
+          )
+
+          for path in "${required[@]}"; do
+            test -f "$path" || { echo "Missing required file: $path"; exit 1; }
+          done
+
+          test -x .github/scripts/check-commit-attribution.sh || {
+            echo 'Required script is not executable: .github/scripts/check-commit-attribution.sh'
+            exit 1
+          }
+
+      - name: 'Check human commit attribution'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: |
+          zero_sha=0000000000000000000000000000000000000000
+
+          case "$EVENT_NAME" in
+            pull_request)
+              revision="${BASE_SHA}..${HEAD_SHA}"
+              ;;
+            push)
+              if [[ $AFTER_SHA == "$zero_sha" ]]; then
+                echo 'No new commits to check for branch deletion.'
+                exit 0
+              fi
+              if [[ -z $AFTER_SHA ]] \
+                || ! git cat-file -e "${AFTER_SHA}^{commit}" 2>/dev/null; then
+                echo "Unable to resolve push after commit: ${AFTER_SHA:-<empty>}" >&2
+                exit 1
+              fi
+              if [[ -n $BEFORE_SHA && $BEFORE_SHA != "$zero_sha" ]] \
+                && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+                revision="${BEFORE_SHA}..${AFTER_SHA}"
+              else
+                revision="$AFTER_SHA"
+              fi
+              ;;
+            *)
+              revision=HEAD
+              ;;
+          esac
+
+          .github/scripts/check-commit-attribution.sh "$revision"
+
+  security-check:
+    name: 'Security Scanning'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: 'Require immutable action references'
+        shell: bash
+        run: |
+          invalid=$(
+            grep -REn '^[[:space:]]*uses:[[:space:]]+[^[:space:]#]+@[^[:space:]#]+' .github/workflows \
+              | grep -Ev '@[0-9a-f]{40}([[:space:]]+#.*)?$' \
+              || true
+          )
+          if [ -n "$invalid" ]; then
+            echo "Action references must use full 40-character commit SHAs:"
+            echo "$invalid"
+            exit 1
+          fi

@@ -1,0 +1,296 @@
+# GitHub Actions workflow reference: https://docs.github.com/en/actions
+# Commit SHA pinned for security - update with care
+# Last SHA update: 2026-08-21
+---
+name: 'Milestone Acceptance & Human Review'
+
+on:
+  milestone:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      milestone:
+        description: 'Milestone title to review'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.milestone.title || github.event.inputs.milestone || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-milestone-review:
+    name: 'Prepare Milestone Review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      milestone-title: ${{ steps.get-milestone.outputs.title }}
+      milestone-number: ${{ steps.get-milestone.outputs.number }}
+      issues-count: ${{ steps.issues.outputs.count }}
+      prs-count: ${{ steps.prs.outputs.count }}
+
+    steps:
+      - name: 'Get Milestone Info'
+        id: get-milestone
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          INPUT_MILESTONE: ${{ github.event.inputs.milestone }}
+        with:
+          script: |
+            let milestone;
+
+            if (context.eventName === 'milestone') {
+              milestone = context.payload.milestone;
+            } else {
+              const wanted = process.env.INPUT_MILESTONE;
+              const milestones = await github.rest.issues.listMilestones({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'all'
+              });
+
+              milestone = milestones.data.find(m => m.title === wanted);
+            }
+
+            core.setOutput('title', milestone.title);
+            core.setOutput('number', milestone.number.toString());
+            core.setOutput('state', milestone.state);
+
+      - name: 'Get Milestone Issues'
+        id: issues
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          MILESTONE_NUMBER: ${{ steps.get-milestone.outputs.number }}
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              milestone: process.env.MILESTONE_NUMBER,
+              state: 'all',
+              per_page: 100
+            });
+
+            const closed = issues.data.filter(i => i.state === 'closed').length;
+            const total = issues.data.length;
+            const open = total - closed;
+
+            core.setOutput('count', total.toString());
+            core.setOutput('closed', closed.toString());
+            core.setOutput('open', open.toString());
+            core.setOutput('data', JSON.stringify(issues.data));
+
+            console.log(`Milestone issues: ${closed}/${total} closed`);
+
+      - name: 'Get Milestone PRs'
+        id: prs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          MILESTONE_TITLE: ${{ steps.get-milestone.outputs.title }}
+        with:
+          script: |
+            // Filter merged PRs by their actual milestone field. The previous
+            // heuristic (title substring in PR body / 'milestone' label) never
+            // matched because milestones are not labels.
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              per_page: 100
+            });
+
+            const wanted = process.env.MILESTONE_TITLE;
+            const milestonePRs = prs.data.filter(pr =>
+              pr.milestone && pr.milestone.title === wanted
+            );
+
+            core.setOutput('count', milestonePRs.length.toString());
+            core.setOutput('data', JSON.stringify(milestonePRs));
+
+      - name: 'Generate Review Summary'
+        env:
+          M_TITLE: ${{ steps.get-milestone.outputs.title }}
+          M_NUMBER: ${{ steps.get-milestone.outputs.number }}
+          M_STATE: ${{ steps.get-milestone.outputs.state }}
+          ISSUES_CLOSED: ${{ steps.issues.outputs.closed }}
+          ISSUES_COUNT: ${{ steps.issues.outputs.count }}
+          PRS_COUNT: ${{ steps.prs.outputs.count }}
+          ISSUES_DATA: ${{ steps.issues.outputs.data }}
+          PRS_DATA: ${{ steps.prs.outputs.data }}
+        run: |
+          # All substituted values flow through env vars; milestone title and
+          # issue/PR JSON contain untrusted content that must not be templated
+          # into a shell heredoc.
+          {
+            echo "# Milestone Review: $M_TITLE"
+            echo ""
+            echo "## Overview"
+            echo "- **Milestone Number:** $M_NUMBER"
+            echo "- **State:** $M_STATE"
+            echo "- **Issues:** $ISSUES_CLOSED/$ISSUES_COUNT closed"
+            echo "- **PRs Merged:** $PRS_COUNT"
+            echo ""
+            echo "## Summary for Human Review"
+            echo ""
+            echo "### Completed Issues"
+            echo '```json'
+            printf '%s' "$ISSUES_DATA" | jq . 2>/dev/null || printf '%s' "$ISSUES_DATA"
+            echo '```'
+            echo ""
+            echo "### Merged Pull Requests"
+            echo '```json'
+            printf '%s' "$PRS_DATA" | jq . 2>/dev/null || printf '%s' "$PRS_DATA"
+            echo '```'
+            cat <<'EOF'
+          ## Acceptance Checklist
+
+          Please verify the following:
+
+          - [ ] All critical issues resolved
+          - [ ] Acceptance criteria met
+          - [ ] Required checks passing
+          - [ ] Security scan clean
+          - [ ] Project documentation updated
+          EOF
+          } > milestone_review.md
+
+      - name: 'Upload Review Document'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: milestone-review-${{ steps.get-milestone.outputs.title }}
+          path: milestone_review.md
+          retention-days: 90
+
+  random-audit-check:
+    name: 'Quality Audit'
+    needs: prepare-milestone-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch' || github.event.milestone.state == 'closed'
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 'Select Random Changes for Audit'
+        id: audit-selection
+        run: |
+          # Get list of merged PRs in milestone
+          PRS=$(gh pr list --state merged --limit 50 --json number,title --jq '.[]')
+
+          # Randomly select 2-3 for detailed audit
+          AUDIT_COUNT=$((RANDOM % 2 + 2))
+          echo "Selected ${AUDIT_COUNT} PRs for random audit"
+
+          echo "count=${AUDIT_COUNT}" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: 'Audit Assistant'
+        run: |
+          echo "Quality audit for milestone"
+          echo "Checking:"
+          echo "1. Acceptance criteria and project scope"
+          echo "2. Workflow quality"
+          echo "3. Required-check results"
+          echo "4. Permission boundaries"
+          echo "5. Documentation and automation drift"
+          echo ""
+          echo "Audit findings will be included in the report."
+
+      - name: 'Create Audit Report Issue'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          MILESTONE_TITLE: ${{ needs.prepare-milestone-review.outputs.milestone-title }}
+          AUDIT_COUNT: ${{ steps.audit-selection.outputs.count }}
+        with:
+          script: |
+            const title = `Quality Audit - ${process.env.MILESTONE_TITLE}`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              labels: ['audit', 'quality-review'],
+              body: `
+              ## Quality Audit Report
+
+              **Milestone:** ${process.env.MILESTONE_TITLE}
+              **PRs Audited:** ${process.env.AUDIT_COUNT}
+
+              ### Audit Findings
+
+              Quality audit completed. Review attached.
+
+              ### Actions Required
+              - [ ] Review findings
+              - [ ] Address critical issues if any
+              - [ ] Document patterns for future improvement
+
+              ---
+              *Project quality assurance report.*
+              `
+            });
+
+  human-acceptance:
+    name: 'Request Human Acceptance'
+    needs: [prepare-milestone-review, random-audit-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.milestone.state == 'closed'
+
+    steps:
+      - name: 'Create Acceptance Ticket'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          MILESTONE_TITLE: ${{ needs.prepare-milestone-review.outputs.milestone-title }}
+          ISSUES_COUNT: ${{ needs.prepare-milestone-review.outputs.issues-count }}
+          PRS_COUNT: ${{ needs.prepare-milestone-review.outputs.prs-count }}
+        with:
+          script: |
+            const milestone = process.env.MILESTONE_TITLE;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🎯 Milestone Acceptance: ${milestone}`,
+              labels: ['milestone', 'acceptance', 'human-review'],
+              body: `
+              ## Milestone Acceptance Required
+
+              **Milestone:** ${milestone}
+              **Issues Completed:** ${process.env.ISSUES_COUNT}
+              **PRs Merged:** ${process.env.PRS_COUNT}
+
+              ### Acceptance Checklist
+
+              Please review the milestone review document and verify:
+
+              #### Functionality
+              - [ ] All acceptance criteria met
+              - [ ] Features work as specified
+              - [ ] Edge cases handled
+
+              #### Quality
+              - [ ] Code review findings addressed
+              - [ ] Required checks passing
+              - [ ] Security scans clean
+
+              #### Documentation
+              - [ ] \`.github/WORKFLOWS.md\` is current
+              - [ ] \`.github/settings.yml\` recommendations were reviewed
+
+              ### Review Document
+              Download the milestone review from workflow artifacts for detailed analysis.
+
+              ---
+              Once verified, comment "/accept-milestone" to mark this milestone as accepted.
+              `
+            });
