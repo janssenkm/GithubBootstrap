@@ -1,64 +1,133 @@
-# Pull-request quality checks for template and generated projects
-name: 'PR Quality'
+# Pull-request binding is validated with trusted base-repository code only
+name: 'PR Engineering Contract'
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened]
 
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 
 concurrency:
-  group: pr-quality-${{ github.event.pull_request.number }}
+  group: pr-engineering-contract-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  pull-request-quality:
-    name: 'Pull Request Quality'
+  engineering-contract:
+    name: 'Engineering Contract Validation'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
-      - name: 'Checkout'
+      - name: 'Checkout trusted base-repository governance code'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: 'Check patch formatting'
-        run: git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      - name: 'Set up locked Python runtime'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+          cache-dependency-path: '.github/governance/requirements.txt'
 
-      - name: 'Check required template assets'
+      - name: 'Install hash-locked governance dependencies'
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/governance/requirements.txt
+
+      - name: 'Validate current PR binding and ready receipt chain'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts/governance
+        run: >-
+          python -m github_governance pr-binding
+          --mode pr
+          --policy .github/project-policy.yml
+          --repository-root .
+
+      - name: 'Check required template assets on the trusted base'
         shell: bash
         run: |
           required=(
             README.md
             CONTRIBUTING.md
             AGENTS.md
+            CLAUDE.md
             BOOTSTRAP.md
+            .agent/context-policy.md
+            .agent/engineering.md
+            .agent/host-adapters.md
+            .agent/issue-workflow.md
+            .agent/security.md
+            .agent/tool-policy.md
+            .agent/verification.md
+            .agents/skills/issue-investigate/SKILL.md
+            .agents/skills/issue-author/SKILL.md
+            .agents/skills/issue-review/SKILL.md
+            .agents/skills/issue-promote/SKILL.md
+            .claude/skills/issue-investigate/SKILL.md
+            .claude/skills/issue-author/SKILL.md
+            .claude/skills/issue-review/SKILL.md
+            .claude/skills/issue-promote/SKILL.md
+            .python-version
             .github/CODEOWNERS
             .github/PULL_REQUEST_TEMPLATE.md
+            .github/SETTINGS.md
             .github/WORKFLOWS.md
             .github/dependabot.yml
-            .github/settings.yml
+            .github/governance/requirements.in
+            .github/governance/requirements.txt
+            .github/governance/tools/actionlint.sha256
+            .github/governance/tools/actionlint.version
+            .github/project-policy.yml
+            .github/schemas/engineering-issue.schema.json
+            .github/schemas/project-policy.schema.json
             .github/scripts/check-commit-attribution.sh
-            .github/ISSUE_TEMPLATE/bug.md
-            .github/ISSUE_TEMPLATE/feature.md
-            .github/ISSUE_TEMPLATE/refactor.md
+            .github/scripts/test-governance.sh
+            .github/scripts/governance/github_governance/__init__.py
+            .github/scripts/governance/github_governance/__main__.py
+            .github/scripts/governance/github_governance/audit.py
+            .github/scripts/governance/github_governance/canonical.py
+            .github/scripts/governance/github_governance/contract.py
+            .github/scripts/governance/github_governance/errors.py
+            .github/scripts/governance/github_governance/events.py
+            .github/scripts/governance/github_governance/github_api.py
+            .github/scripts/governance/github_governance/attestations.py
+            .github/scripts/governance/github_governance/policy.py
+            .github/scripts/governance/github_governance/pr_binding.py
+            .github/scripts/governance/github_governance/milestones.py
+            .github/scripts/governance/github_governance/schema_validation.py
+            .github/scripts/governance/github_governance/semantic.py
+            .github/scripts/governance/github_governance/state.py
+            .github/ISSUE_TEMPLATE/config.yml
+            .github/ISSUE_TEMPLATE/intake-bug.yml
+            .github/ISSUE_TEMPLATE/intake-feature.yml
+            .github/ISSUE_TEMPLATE/intake-refactor.yml
+            .github/ISSUE_TEMPLATE/candidate.md
+            .github/templates/engineering-issue.md
             .github/workflows/00-baseline-check.yml
-            .github/workflows/00-issue-ai-triage.yml
+            .github/workflows/00-issue-intake.yml
             .github/workflows/01-ai-development-workflow.yml
+            .github/workflows/02-engineering-governance.yml
+            .github/workflows/03-engineering-promotion.yml
             .github/workflows/05-commit-lint.yml
             .github/workflows/10-pr-ai-review.yml
             .github/workflows/20-ci-build-test.yml
-            .github/workflows/30-milestone-acceptance.yml
+            .github/workflows/50-milestone-review.yml
+            .github/workflows/51-milestone-review-provisional.yml
+            .github/workflows/52-milestone-review-finalize.yml
+            .github/workflows/53-milestone-acceptance-intent.yml
+            .github/workflows/54-milestone-acceptance-execute.yml
+            .github/workflows/55-milestone-acceptance-finalize.yml
             .github/workflows/40-stale.yml
+            tests/governance/test_bootstrap_docs.py
+            tests/governance/test_milestones.py
+            tests/governance/test_milestone_chain.py
           )
-
           for path in "${required[@]}"; do
             test -f "$path" || { echo "Missing required file: $path"; exit 1; }
           done
-
-          test -x .github/scripts/check-commit-attribution.sh || {
-            echo 'Required script is not executable: .github/scripts/check-commit-attribution.sh'
-            exit 1
-          }

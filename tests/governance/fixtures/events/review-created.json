@@ -1,0 +1,13 @@
+{
+  "action": "created",
+  "repository": {"id": 55, "full_name": "owner/repo"},
+  "sender": {"login": "reviewer"},
+  "issue": {"id": 101, "number": 7, "labels": [{"name": "type:candidate"}, {"name": "state:draft"}]},
+  "comment": {
+    "id": 303,
+    "body": "/review-contract 1 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-08-23T01:00:00Z",
+    "updated_at": "2026-08-23T01:00:00Z",
+    "user": {"login": "reviewer", "type": "User"}
+  }
+}

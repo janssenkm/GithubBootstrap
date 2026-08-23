@@ -1,0 +1,564 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/janssenkm/GithubBootstrap/blob/main/.github/schemas/engineering-issue.schema.json",
+  "title": "Engineering Issue Contract",
+  "description": "Machine-readable contract embedded in a Candidate or Engineering Issue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "status",
+    "provenance",
+    "issue_revision",
+    "base_commit",
+    "claims",
+    "evidence",
+    "goal",
+    "non_goals",
+    "affected_areas",
+    "constraints",
+    "implementation_boundaries",
+    "requirements",
+    "unknowns",
+    "risks",
+    "dependency_locks",
+    "document_locks",
+    "review",
+    "approval",
+    "freeze"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "kind": { "const": "engineering-issue-contract" },
+    "status": {
+      "enum": ["candidate", "contracted", "ready", "in-progress", "done", "cancelled"]
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "issue_revision": { "type": "integer", "minimum": 1 },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "non_goals": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "affected_areas": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/affectedArea" }
+    },
+    "constraints": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "implementation_boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/requirement" }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unknown" }
+    },
+    "risks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/risk" }
+    },
+    "dependency_locks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dependencyLock" }
+    },
+    "document_locks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/documentLock" }
+    },
+    "review": { "$ref": "#/$defs/review" },
+    "approval": { "$ref": "#/$defs/approval" },
+    "freeze": { "$ref": "#/$defs/freeze" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["contracted", "ready", "in-progress", "done", "cancelled"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "review": {
+            "properties": { "result": { "const": "pass" } },
+            "required": ["result"]
+          },
+          "approval": {
+            "properties": { "decision": { "const": "approved" } },
+            "required": ["decision"]
+          },
+          "freeze": {
+            "properties": {
+              "contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "frozen_at": { "type": "string", "format": "date-time" },
+              "frozen_by": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["contracted", "ready", "in-progress", "done"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "unknowns": {
+            "not": {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "impact": { "const": "high" },
+                  "resolution": { "const": "open" }
+                },
+                "required": ["impact", "resolution"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*-[0-9]{2,}$"
+    },
+    "nonNegativeInteger": { "type": "integer", "minimum": 0 },
+    "issueRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "number", "role"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "number": { "type": "integer", "minimum": 1 },
+        "role": { "enum": ["intake", "candidate", "related"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_by", "promoted_by", "sources"],
+      "properties": {
+        "created_by": { "type": "string", "minLength": 1 },
+        "promoted_by": { "type": ["string", "null"], "minLength": 1 },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/issueRef" }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "statement", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "type": { "enum": ["fact", "inference", "decision"] },
+        "statement": { "type": "string", "minLength": 1 },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "fact" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "evidence_refs": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "decision" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "evidence_refs": { "minItems": 1 } }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "locator", "summary", "captured_at"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "type": {
+          "enum": [
+            "repository-file",
+            "command-output",
+            "runtime-log",
+            "git-history",
+            "official-docs",
+            "context7",
+            "human-decision",
+            "issue",
+            "pull-request"
+          ]
+        },
+        "locator": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "content_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "affectedArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "symbol": { "type": ["string", "null"], "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verification": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "run", "expected_result"],
+          "properties": {
+            "type": { "const": "command" },
+            "run": { "type": "string", "minLength": 1 },
+            "expected_result": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "observe", "expected_result"],
+          "properties": {
+            "type": { "const": "observation" },
+            "observe": { "type": "string", "minLength": 1 },
+            "expected_result": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "acceptanceCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "polarity", "statement", "verification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "polarity": { "enum": ["positive", "negative"] },
+        "statement": { "type": "string", "minLength": 1 },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "acceptance_criteria"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "statement": { "type": "string", "minLength": 1 },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/acceptanceCriterion" },
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "polarity": { "const": "positive" } },
+                "required": ["polarity"]
+              },
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "polarity": { "const": "negative" } },
+                "required": ["polarity"]
+              },
+              "minContains": 1
+            }
+          ]
+        }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "impact", "resolution"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "statement": { "type": "string", "minLength": 1 },
+        "impact": { "enum": ["low", "high"] },
+        "resolution": { "enum": ["open", "resolved"] },
+        "resolution_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "containment": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "risk_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "impact": { "const": "low" },
+              "resolution": { "const": "open" }
+            },
+            "required": ["impact", "resolution"]
+          },
+          "then": {
+            "required": ["containment", "risk_refs"],
+            "properties": {
+              "containment": { "type": "string", "minLength": 1 },
+              "risk_refs": { "minItems": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "mitigation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "description": { "type": "string", "minLength": 1 },
+        "mitigation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dependencyLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "source"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    },
+    "documentLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "locator", "version_or_date"],
+      "properties": {
+        "provider": { "enum": ["official-docs", "context7"] },
+        "locator": { "type": "string", "minLength": 1 },
+        "version_or_date": { "type": "string", "minLength": 1 },
+        "content_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "reviewFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "statement", "disposition"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "severity": { "enum": ["low", "high"] },
+        "statement": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["open", "resolved"] },
+        "resolution_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "disposition": { "const": "resolved" } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "required": ["resolution_evidence_refs"],
+            "properties": { "resolution_evidence_refs": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "disposition": { "const": "open" } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "not": { "required": ["resolution_evidence_refs"] }
+          }
+        }
+      ]
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "reviewed_by",
+        "result",
+        "subject_revision",
+        "subject_digest",
+        "findings",
+        "evidence_refs"
+      ],
+      "properties": {
+        "mode": { "const": "independent-adversarial" },
+        "reviewed_by": { "type": ["string", "null"], "minLength": 1 },
+        "result": { "enum": ["pending", "pass", "fail"] },
+        "subject_revision": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "subject_digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reviewFinding" }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "result": { "const": "pass" } },
+            "required": ["result"]
+          },
+          "then": {
+            "properties": {
+              "reviewed_by": { "type": "string", "minLength": 1 },
+              "subject_revision": { "type": "integer", "minimum": 1 },
+              "subject_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "findings": {
+                "not": {
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "disposition": { "const": "open" }
+                    },
+                    "required": ["disposition"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "actor",
+        "decided_at",
+        "evidence_ref",
+        "subject_revision",
+        "subject_digest"
+      ],
+      "properties": {
+        "decision": { "enum": ["pending", "approved", "rejected"] },
+        "actor": { "type": ["string", "null"], "minLength": 1 },
+        "decided_at": { "type": ["string", "null"], "format": "date-time" },
+        "evidence_ref": {
+          "anyOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
+        },
+        "subject_revision": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "subject_digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "decision": { "const": "approved" } },
+            "required": ["decision"]
+          },
+          "then": {
+            "properties": {
+              "actor": { "type": "string", "minLength": 1 },
+              "decided_at": { "type": "string", "format": "date-time" },
+              "evidence_ref": { "$ref": "#/$defs/identifier" },
+              "subject_revision": { "type": "integer", "minimum": 1 },
+              "subject_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
+          }
+        }
+      ]
+    },
+    "freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash_algorithm", "contract_hash", "frozen_at", "frozen_by"],
+      "properties": {
+        "hash_algorithm": { "const": "RFC8785+SHA-256" },
+        "contract_hash": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "frozen_at": { "type": ["string", "null"], "format": "date-time" },
+        "frozen_by": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+name: 'Milestone Review Capture'
+on:
+  workflow_dispatch:
+    inputs:
+      milestone_number: {description: 'Numeric milestone number', required: true, type: number}
+permissions: {}
+concurrency: {group: 'milestone-review-capture-${{ github.repository_id }}', cancel-in-progress: false}
+jobs:
+  capture:
+    name: 'Milestone Review Capture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {checks: read, contents: read, issues: read, pull-requests: read}
+    steps:
+      - id: trusted-code
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const {data:repo}=await github.rest.repos.get({owner:context.repo.owner,repo:context.repo.repo});
+            const {data:ref}=await github.rest.git.getRef({owner:context.repo.owner,repo:context.repo.repo,ref:`heads/${repo.default_branch}`});
+            if(ref.object.sha!==context.sha) core.setFailed('milestone capture must run from the current default-branch commit');
+            core.setOutput('sha',ref.object.sha);
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {persist-credentials: false, ref: '${{ steps.trusted-code.outputs.sha }}'}
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with: {python-version-file: '.python-version'}
+      - run: python -m pip install --disable-pip-version-check --require-hashes -r .github/governance/requirements.txt
+      - env: {GH_TOKEN: '${{ github.token }}', PYTHONPATH: '${{ github.workspace }}/.github/scripts/governance'}
+        run: python -m github_governance milestone-review --milestone-number '${{ inputs.milestone_number }}' --policy .github/project-policy.yml --repository '${{ github.repository }}' --run-id '${{ github.run_id }}' --run-attempt '${{ github.run_attempt }}' --summary-only > milestone-review.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with: {name: 'milestone-review-${{ inputs.milestone_number }}-${{ github.run_id }}-${{ github.run_attempt }}', path: milestone-review.json, retention-days: 90}

@@ -1,0 +1,48 @@
+name: Feature intake
+description: Propose a capability or behavior for maintainer investigation.
+title: "[FEATURE] "
+labels:
+  - type:intake
+  - state:new
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This proposal is Intake data, not an Engineering Issue or authorization to develop.
+        Maintainers will investigate the need, evidence, scope, and risks before promotion.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or need
+      description: Describe the user-visible problem without assuming a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: desired_outcome
+    attributes:
+      label: Desired outcome
+      description: Describe an observable result that would address the need.
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Concrete use case
+      description: Explain who needs this and when.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note workarounds or alternative outcomes, if known.
+    validations:
+      required: false
+  - type: textarea
+    id: source_links
+    attributes:
+      label: Evidence and related links
+      description: Link issues, documentation, examples, or measurements. These remain unverified until investigated.
+    validations:
+      required: false

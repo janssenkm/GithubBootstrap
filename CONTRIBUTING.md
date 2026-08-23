@@ -13,37 +13,42 @@ ownership.
 
 ## Propose a change
 
-Open an issue that states the reusable problem, scope, alternatives, and
-verifiable acceptance criteria. Small typo or link fixes may go directly to a
-focused pull request.
+Open an Intake Issue that states the reusable problem and available evidence.
+Non-trivial implementation requires a promoted Engineering Issue whose frozen
+contract records scope, non-goals, evidence, risks, tests, and falsifiable
+acceptance criteria. Small typo or link fixes may go directly to a focused pull
+request.
 
 For approved implementation work:
 
-1. create a focused branch, normally through the included `/ready-for-dev`
-   workflow;
+1. after work is authorized, create a focused branch through the local
+   development process; `/ready-for-dev` does not create a branch;
 2. change only the files needed by the issue;
 3. keep third-party workflow actions pinned to full commit SHAs;
 4. update [`BOOTSTRAP.md`](BOOTSTRAP.md), `.github/WORKFLOWS.md`, and
-   `.github/settings.yml` together when initialization behavior changes;
+   `.github/SETTINGS.md` together when initialization behavior changes;
 5. run the relevant validation before opening a pull request.
+
+Automated cloud-agent development is not part of this template. GitHub is the
+GitHub control plane; local agents are the local execution plane. The governance
+workflows validate Intake, contracts, attestations, promotion, and PR binding.
+The legacy-named local-handoff workflow is a read-only manual notice and does
+not create a branch or mutate an Issue.
 
 ## Validate locally
 
 From the repository root:
 
 ```bash
-python3 - <<'PY'
-from pathlib import Path
-import yaml
-
-for path in Path('.github/workflows').glob('*.yml'):
-    yaml.safe_load(path.read_text())
-PY
+.github/scripts/test-governance.sh
 git diff --check
 ```
 
-The required GitHub checks remain `Configuration Validation` and `Security
-Scanning`. If their job names change, update the branch ruleset at the same time.
+The stable repository checks are `Configuration Validation` and `Security
+Scanning`. Contract workflows also expose `Engineering Contract Validation`;
+read [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md) before binding that shared
+job name to a ruleset context. If a required name changes, update the ruleset
+through the separately confirmed remote process.
 
 ## Human attribution policy
 

@@ -1,0 +1,21 @@
+{
+  "response_loss_cuts": [
+    "intent-comment",
+    "issue-create",
+    "target-link",
+    "candidate-finalization",
+    "ready-body-write",
+    "completed-comment",
+    "handoff-comment"
+  ],
+  "fail_closed_attacks": [
+    "edited-source",
+    "missing-actions-read",
+    "duplicate-target-marker",
+    "forged-promoted-by",
+    "stale-contract-hash",
+    "body-toctou"
+  ],
+  "recovery_source": "REST pagination only",
+  "search_api": false
+}

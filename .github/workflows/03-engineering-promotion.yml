@@ -1,0 +1,108 @@
+name: 'Engineering Contract Promotion'
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Read-only verification or event-backed promotion'
+        required: true
+        type: choice
+        options: [gate, promote]
+      issue_number:
+        description: 'Candidate or promoted Engineering Issue number'
+        required: true
+        type: string
+      source_comment_id:
+        description: 'Exact human /promote source comment database ID'
+        required: false
+        default: '0'
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: engineering-promotion-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  read-and-revalidate:
+    name: 'Engineering Promotion Validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+    outputs:
+      mode: ${{ steps.evaluate.outputs.mode }}
+      mutation: ${{ steps.evaluate.outputs.mutation }}
+      issue-number: ${{ steps.evaluate.outputs.issue_number }}
+      gate-result: ${{ steps.evaluate.outputs.gate_result }}
+      operation: ${{ steps.evaluate.outputs.operation }}
+    steps:
+      - name: 'Checkout trusted default-branch governance code'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Set up locked Python runtime'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+          cache-dependency-path: '.github/governance/requirements.txt'
+
+      - name: 'Install hash-locked governance dependencies'
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/governance/requirements.txt
+
+      - name: 'Validate promotion event, Candidate, and receipt runs'
+        id: evaluate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts/governance
+        run: python -m github_governance.events --phase promotion-read
+
+      - name: 'Fail closed on Gate findings'
+        if: steps.evaluate.outputs.gate_result == 'FAIL'
+        run: exit 1
+
+  gated-write:
+    name: 'Engineering Promotion Mutation'
+    needs: read-and-revalidate
+    if: >-
+      always() &&
+      needs.read-and-revalidate.outputs.mutation == 'true' &&
+      (needs.read-and-revalidate.outputs.mode == 'warn' ||
+       needs.read-and-revalidate.outputs.mode == 'enforce') &&
+      (github.event_name != 'issues' || github.event.issue.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: 'Checkout trusted default-branch governance code'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Set up locked Python runtime'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+          cache-dependency-path: '.github/governance/requirements.txt'
+
+      - name: 'Install hash-locked governance dependencies'
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/governance/requirements.txt
+
+      - name: 'Revalidate and apply mode-limited promotion'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts/governance
+        run: python -m github_governance.events --phase promotion-write

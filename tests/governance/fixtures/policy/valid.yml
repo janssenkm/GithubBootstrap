@@ -1,0 +1,14 @@
+schema_version: 1
+rollout_mode: dry-run
+trusted_issue_authors:
+  - Author
+trusted_developers:
+  - Developer
+trusted_reviewers:
+  - Reviewer
+trusted_milestone_acceptors:
+  - Acceptor
+required_milestone_checks:
+  - Quality Gate
+allowed_verification_commands:
+  - test -f README.md

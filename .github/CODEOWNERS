@@ -7,3 +7,7 @@
 #
 # * @your-handle
 # /docs/ @your-organization/docs-team
+#
+# Bootstrap validation checks that this file exists, but does not validate that
+# a generated project's uncommented rules name a real user or team. The project
+# owner must replace this placeholder and verify the resulting review routing.

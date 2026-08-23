@@ -1,0 +1,14 @@
+{
+  "escaped_controls": {
+    "input_codepoints": [0, 8, 9, 10, 12, 13, 31, 34, 92],
+    "expected": "\"\\u0000\\b\\t\\n\\f\\r\\u001f\\\"\\\\\""
+  },
+  "unicode": {
+    "input": "é 汉字 😀 €",
+    "expected": "\"é 汉字 😀 €\""
+  },
+  "invalid_surrogate_codepoint": 57005,
+  "non_finite": ["nan", "infinity", "negative-infinity"],
+  "largest_safe_integer": 9007199254740991,
+  "first_unsafe_integer": 9007199254740992
+}

@@ -1,0 +1,52 @@
+name: Bug intake
+description: Report reproducible incorrect behavior for maintainer investigation.
+title: "[BUG] "
+labels:
+  - type:intake
+  - state:new
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report is Intake data, not an Engineering Issue or authorization to develop.
+        Do not include secrets. Maintainers will independently verify claims and evidence.
+  - type: textarea
+    id: observed_behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what happened and include safe, redacted output where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest repeatable sequence, including the version or commit.
+      placeholder: |
+        1. Start from ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: State the observable result you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: List relevant operating system, runtime, dependency, and configuration versions.
+    validations:
+      required: true
+  - type: textarea
+    id: source_links
+    attributes:
+      label: Evidence and related links
+      description: Link safe logs, runs, issues, pull requests, or documentation. These remain unverified until investigated.
+    validations:
+      required: false

@@ -1,0 +1,48 @@
+name: Refactor intake
+description: Report a maintainability concern for evidence-based investigation.
+title: "[REFACTOR] "
+labels:
+  - type:intake
+  - state:new
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report is Intake data, not an Engineering Issue or authorization to change code.
+        Maintainers will verify the affected area, behavior boundary, risks, and test scope.
+  - type: textarea
+    id: affected_area
+    attributes:
+      label: Suspected affected area
+      description: Name paths or symbols only when observed; otherwise describe where investigation should begin.
+    validations:
+      required: true
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: Current problem
+      description: Describe concrete maintenance, safety, performance, or clarity costs.
+    validations:
+      required: true
+  - type: textarea
+    id: desired_outcome
+    attributes:
+      label: Desired outcome
+      description: State the observable improvement and behavior that must remain unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and constraints
+      description: Note compatibility, migration, security, concurrency, data, performance, or platform concerns.
+    validations:
+      required: false
+  - type: textarea
+    id: source_links
+    attributes:
+      label: Evidence and related links
+      description: Link relevant code, history, measurements, issues, or documentation. These remain unverified until investigated.
+    validations:
+      required: false

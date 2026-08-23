@@ -18,3 +18,16 @@ updates:
     commit-message:
       prefix: "ci:"
       include: "scope"
+
+  # Keep the governance runtime input and its committed hash lock current.
+  # Every update must regenerate requirements.txt and rerun RFC 8785 vectors.
+  - package-ecosystem: "pip"
+    directory: "/.github/governance"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build:"
+      include: "scope"

@@ -1,0 +1,13 @@
+{
+  "dependency_locks": [
+    {"name": "widget", "version": "1.2.3", "source": "missing.json"}
+  ],
+  "document_locks": [
+    {
+      "provider": "official-docs",
+      "locator": "docs/missing.md",
+      "version_or_date": "BASE_COMMIT",
+      "content_sha256": "f5700ea2d96bc071ec2068c327c3153d2c3d5859fc6606c285ef0eb8fb2ebf17"
+    }
+  ]
+}

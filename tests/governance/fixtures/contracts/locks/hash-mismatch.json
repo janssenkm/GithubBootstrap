@@ -1,0 +1,11 @@
+{
+  "dependency_locks": [],
+  "document_locks": [
+    {
+      "provider": "official-docs",
+      "locator": "docs/reference.md",
+      "version_or_date": "BASE_COMMIT",
+      "content_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

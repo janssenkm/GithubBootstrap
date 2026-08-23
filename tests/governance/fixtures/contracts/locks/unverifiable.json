@@ -1,0 +1,13 @@
+{
+  "dependency_locks": [
+    {"name": "widget", "version": "1.2.3", "source": "https://example.invalid/dependencies.json"}
+  ],
+  "document_locks": [
+    {
+      "provider": "context7",
+      "locator": "https://example.invalid/reference",
+      "version_or_date": "2026-08-22",
+      "content_sha256": null
+    }
+  ]
+}

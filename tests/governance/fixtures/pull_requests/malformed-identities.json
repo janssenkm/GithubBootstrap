@@ -1,0 +1,34 @@
+{
+  "invalid_integers": [true, null, 0, -1, "8"],
+  "huge_integer": 100000000000000000000000000000000000000000000000000,
+  "invalid_shas": [
+    true,
+    null,
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gggggggggggggggggggggggggggggggggggggggg"
+  ],
+  "invalid_repositories": [
+    "ownerrepo",
+    "owner/repo/extra",
+    "/repo",
+    "owner/",
+    "./repo",
+    "../repo",
+    "owner--name/repo",
+    "ownér/repo",
+    " owner/repo",
+    "owner /repo",
+    "owner\t/repo",
+    "owner/repo name",
+    "owner/..",
+    "owner\n/repo",
+    "owner/\nrepo"
+  ],
+  "valid_repositories": [
+    "a/r",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/r",
+    "owner/repo-._name",
+    "owner/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+  ]
+}

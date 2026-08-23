@@ -78,6 +78,12 @@ Collect these required inputs before proposing implementation:
 - build, test, lint, formatting, and security commands or intended baseline;
 - license choice;
 - `CODEOWNERS`, review policy, merge policy, and other governance decisions;
+- exact `trusted_issue_authors`, `trusted_developers`, `trusted_reviewers`, and
+  `trusted_milestone_acceptors`, with reviewer separation where required;
+- exact `required_milestone_checks` observed in the target repository;
+- the project's finite `allowed_verification_commands` allowlist;
+- available local agent hosts and whether Context7 and LSP integrations are
+  available; an unavailable tool must be recorded, not silently claimed;
 - documentation, release, versioning, packaging, and distribution expectations.
 
 Collect optional inputs only when relevant:
@@ -86,7 +92,8 @@ Collect optional inputs only when relevant:
   labels;
 - deployment, release signing, CodeQL, documentation publishing, or external
   integrations;
-- AI-assisted triage and its provider/model configuration.
+- any future AI-assisted triage requirements and provider/model constraints;
+  automated AI triage is currently unavailable.
 
 Never ask the user to paste a Secret into chat, an issue, a pull request, or a
 repository file. Record only Secret names and whether they are configured.
@@ -123,9 +130,13 @@ stage, the failure, and the safe resume point.
    points, and acceptance checks. Obtain confirmation for the local batch.
 4. **Local materialization** — rewrite `README.md` and `CONTRIBUTING.md` for the
    target project; customize `AGENTS.md`, `.github/CODEOWNERS`,
-   `.github/settings.yml`, and workflows; create requirements and design
-   documents only as confirmed. Preserve this guide until bootstrap is complete,
-   then keep or adapt it according to the approved documentation plan.
+   `.github/project-policy.yml`, `.github/SETTINGS.md`, and workflows; create
+   requirements and design documents only as confirmed. Replace every
+   repository-specific URL inherited from the template. Preserve this guide
+   until bootstrap is complete, then keep or adapt it according to the approved
+   documentation plan. The baseline checks only that `.github/CODEOWNERS`
+   exists; it does not validate whether CODEOWNERS contains a real owner, so
+   inspect its uncommented rules and verify review routing separately.
 5. **Local validation** — run the selected formatter, lint, build, test, and
    security checks plus workflow YAML, link, and commit-attribution validation.
    Review the complete diff and verify that no Secret or unrelated content is
@@ -140,37 +151,34 @@ stage, the failure, and the safe resume point.
    optional integrations. Verify each setting by reading it back.
 7. **First checks** — after an approved local commit, when applicable, and a
    separately confirmed push, observe the first workflow runs. Verify the exact
-   required check names
-   `Configuration Validation` and `Security Scanning` before depending on them.
+   check names `Engineering Contract Validation`, `Configuration Validation`,
+   and `Security Scanning` before depending on them. Two workflows currently
+   expose the first name; resolve its GitHub check context against observed runs
+   before using it in a ruleset.
 8. **Ruleset** — preview and confirm the ruleset operation, then protect `main`
    with the approved review and required-check policy. Read back the active
    ruleset and avoid copying identifiers from the template source.
 9. **Handoff** — report initialized files and remote state, validation results,
    remaining choices, intentionally deferred work, and exact next steps.
 
-The recommendations and example commands in [`.github/settings.yml`](.github/settings.yml)
+The recommendations and example commands in [`.github/SETTINGS.md`](.github/SETTINGS.md)
 support the remote stages. Adapt them to the confirmed target and governance;
 do not treat that file as proof of remote state.
 
-## Configure Secrets safely
+## Local execution and GitHub governance
 
-Configure only confirmed Secret names, after separate approval for the remote
-write. Use an interactive terminal so the value is not placed in arguments or
-logs:
+GitHub is the GitHub control plane and local agents provide the local execution
+plane. Intake, contract validation, attestation, promotion, and PR binding are
+implemented as deterministic GitHub workflows. Canonical local role procedures
+live in `.agents/skills/`. The legacy-named local development workflow is a
+manually triggered, read-only handoff notice; `/ready-for-dev` does not create a
+branch or change an Issue.
 
-```bash
-REPOSITORY="<owner>/<repo>"
-gh secret set AI_API_KEY --repo "$REPOSITORY"
-```
-
-If AI triage is enabled, configure `AI_API_MODEL` and `AI_API_BASEURL` the same
-way rather than storing their values in a file.
-
-Alternatively, pipe a value obtained from an approved secure environment or
-secret manager into `gh secret set`, and immediately unset temporary shell
-variables. Never echo, persist, print, or include the value in a report. The
-optional AI triage uses its rule-based fallback when its Secret names are not
-configured.
+V2 requires no repository AI Secrets. If a future approved design needs
+Secrets, preserve the remote-write confirmation boundary:
+record only Secret names, preview the exact target and operation, obtain
+separate approval, and use an interactive terminal or approved secret manager
+without printing or persisting values.
 
 ## Repeat runs and recovery
 
@@ -231,10 +239,11 @@ the remote write:
 gh api --method PATCH repos/janssenkm/GithubBootstrap -F is_template=true
 ```
 
-Then apply [`.github/settings.yml`](.github/settings.yml) to
+Then apply [`.github/SETTINGS.md`](.github/SETTINGS.md) to
 `janssenkm/GithubBootstrap`, create its automation labels, run its workflows,
 and configure the `main` ruleset only after GitHub has observed
-`Configuration Validation` and `Security Scanning`. Do not add placeholder
-Secrets. Template maintainers must keep this guide, required-file lists, and
-[`.github/WORKFLOWS.md`](.github/WORKFLOWS.md) synchronized when the bootstrap
-contract changes.
+`Engineering Contract Validation`, `Configuration Validation`, and
+`Security Scanning`, resolving the duplicated contract job name against actual
+runs. Do not add placeholder Secrets. Template maintainers must keep this guide,
+required-file lists, and [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md)
+synchronized when the bootstrap contract changes.

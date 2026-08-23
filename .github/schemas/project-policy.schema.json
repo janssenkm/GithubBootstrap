@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/janssenkm/GithubBootstrap/blob/main/.github/schemas/project-policy.schema.json",
+  "title": "GithubBootstrap Project Governance Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "rollout_mode",
+    "trusted_issue_authors",
+    "trusted_developers",
+    "trusted_reviewers",
+    "trusted_milestone_acceptors",
+    "required_milestone_checks",
+    "allowed_verification_commands"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "rollout_mode": { "enum": ["dry-run", "shadow", "warn", "enforce"] },
+    "trusted_issue_authors": { "$ref": "#/$defs/logins" },
+    "trusted_developers": { "$ref": "#/$defs/logins" },
+    "trusted_reviewers": { "$ref": "#/$defs/logins" },
+    "trusted_milestone_acceptors": { "$ref": "#/$defs/logins" },
+    "required_milestone_checks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$" }
+    },
+    "allowed_verification_commands": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\r\\n]+$"
+      }
+    }
+  },
+  "$defs": {
+    "logins": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,39}$)[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9]))*$"
+      }
+    }
+  }
+}

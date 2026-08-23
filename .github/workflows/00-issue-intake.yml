@@ -1,0 +1,137 @@
+# Deterministic Intake surface validation; external Issue text is data only.
+name: 'Issue Intake Surface'
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions: {}
+
+concurrency:
+  group: issue-intake-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  intake-surface:
+    name: 'Intake Surface Validation'
+    if: ${{ github.event.issue.pull_request == null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: 'Checkout repository policy'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Validate Intake surface without mutation'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          def emit(code, *, mode=None, issue_number=None):
+              record = {
+                  "code": code,
+                  "issue_number": issue_number,
+                  "mutation": False,
+              }
+              if mode is not None:
+                  record["rollout_mode"] = mode
+              print(json.dumps(record, sort_keys=True, separators=(",", ":")))
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          payload = json.loads(event_path.read_text(encoding="utf-8"))
+          issue = payload.get("issue")
+          if not isinstance(issue, dict) or "pull_request" in issue:
+              emit("INTAKE-PR-REJECTED")
+              raise SystemExit(1)
+
+          issue_number = issue.get("number")
+          policy_text = Path(".github/project-policy.yml").read_text(encoding="utf-8")
+          mode_match = re.search(
+              r"^rollout_mode:\s*(dry-run|shadow|warn|enforce)\s*$",
+              policy_text,
+              re.MULTILINE,
+          )
+          if mode_match is None:
+              emit("INTAKE-POLICY-INVALID", issue_number=issue_number)
+              raise SystemExit(1)
+          rollout_mode = mode_match.group(1)
+
+          labels = []
+          for label in issue.get("labels", []):
+              name = label if isinstance(label, str) else label.get("name")
+              if isinstance(name, str):
+                  labels.append(name)
+
+          entity_labels = [
+              label for label in labels
+              if label in {"type:intake", "type:candidate", "type:engineering"}
+          ]
+          if len(entity_labels) != 1:
+              emit(
+                  "INTAKE-ENTITY-LABELS-INVALID",
+                  mode=rollout_mode,
+                  issue_number=issue_number,
+              )
+              raise SystemExit(1)
+
+          if entity_labels[0] != "type:intake":
+              emit(
+                  "INTAKE-RESERVED-ENTITY-NOOP",
+                  mode=rollout_mode,
+                  issue_number=issue_number,
+              )
+              emit("INTAKE-NO-MUTATION", mode=rollout_mode, issue_number=issue_number)
+              raise SystemExit(0)
+
+          intake_state_labels = {"state:new", "state:triaged", "state:investigating"}
+          governed_state_labels = {
+              *intake_state_labels,
+              "state:closed",
+              "state:draft",
+              "state:gate-failed",
+              "state:gate-passed",
+              "state:promoted",
+              "state:contracted",
+              "state:ready",
+              "state:in-progress",
+              "state:done",
+              "state:cancelled",
+          }
+          state_labels = [label for label in labels if label.startswith("state:")]
+          if (
+              len(state_labels) != 1
+              or state_labels[0] not in governed_state_labels
+              or state_labels[0] not in intake_state_labels
+          ):
+              emit(
+                  "INTAKE-STATE-LABELS-INVALID",
+                  mode=rollout_mode,
+                  issue_number=issue_number,
+              )
+              raise SystemExit(1)
+
+          body = issue.get("body") if isinstance(issue.get("body"), str) else ""
+          if (
+              "<!-- engineering-contract:start -->" in body
+              or "<!-- engineering-contract:end -->" in body
+          ):
+              emit(
+                  "INTAKE-CONTRACT-MARKERS-IGNORED",
+                  mode=rollout_mode,
+                  issue_number=issue_number,
+              )
+
+          emit("INTAKE-SURFACE-VALID", mode=rollout_mode, issue_number=issue_number)
+          if rollout_mode in {"dry-run", "shadow"}:
+              emit("INTAKE-NO-MUTATION", mode=rollout_mode, issue_number=issue_number)
+              raise SystemExit(0)
+          emit("INTAKE-NO-MUTATION", mode=rollout_mode, issue_number=issue_number)
+          PY

@@ -1,0 +1,31 @@
+{
+  "intent_fields": [
+    "operation_id",
+    "expected_before_hash",
+    "target_hash",
+    "repository_id",
+    "issue_id",
+    "revision"
+  ],
+  "completion_mutations": [
+    {"name": "extra-field", "extra": "forged"},
+    {"name": "missing-result", "remove": "result"},
+    {"name": "wrong-operation", "operation_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+    {"name": "wrong-target", "target_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+    {"name": "wrong-intent", "intent_comment_id": 999},
+    {"name": "wrong-run", "run_id": 999},
+    {"name": "forged-url", "run_url": "https://example.invalid/forged"}
+  ],
+  "run_bindings": [
+    "repository.full_name",
+    "path",
+    "head_sha",
+    "actor.login",
+    "triggering_actor.login",
+    "event",
+    "id",
+    "html_url",
+    "status",
+    "conclusion"
+  ]
+}

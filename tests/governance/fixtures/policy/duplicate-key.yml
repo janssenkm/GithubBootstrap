@@ -1,0 +1,7 @@
+schema_version: 1
+schema_version: 1
+rollout_mode: dry-run
+trusted_issue_authors: []
+trusted_developers: []
+trusted_reviewers: []
+allowed_verification_commands: []
