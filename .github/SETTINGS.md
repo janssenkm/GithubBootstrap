@@ -150,6 +150,31 @@ credentials from the template repository or place them in policy files.
 
 ## 9. Verify the applied state
 
+Run the repository's read-only validator before and after each separately
+approved rollout batch:
+
+```bash
+.github/scripts/validate-rollout --repository "${REPOSITORY}" --root .
+```
+
+The command performs only repository-scoped REST GET requests and local Git
+reads. It cannot create labels, change settings or rulesets, dispatch a
+workflow, or otherwise automate rollout. Canonical JSON records observed state
+separately from unknown and blocked evidence. Exit `0` is ready, exit `1`
+reports findings, exit `2` reports invalid invocation, and exit `5` reports an
+API or policy evidence failure. A `403`, missing response, or malformed
+response is blocked—not proof that the desired remote state exists.
+The local checkout must be clean, its `origin`, HEAD, policy schema, trust
+lists, required checks, and workflow inventory must be unambiguous, and remote
+pagination must terminate within the validator's fixed bounds. No untracked
+path is silently excluded from that clean-worktree requirement.
+Template-source policy exemptions apply only to the documented
+`janssenkm/GithubBootstrap` identity when the exact local origin and GitHub
+template flag also agree. Forks and other template-enabled repositories remain
+generated projects and require all four nonempty trust lists.
+
+For manual inspection, the corresponding read-only requests are:
+
 ```bash
 gh api "repos/${REPOSITORY}"
 gh api "repos/${REPOSITORY}/actions/permissions"

@@ -74,6 +74,7 @@ jobs:
             .github/schemas/project-policy.schema.json
             .github/scripts/check-commit-attribution.sh
             .github/scripts/test-governance.sh
+            .github/scripts/validate-rollout
             .github/scripts/governance/github_governance/__init__.py
             .github/scripts/governance/github_governance/__main__.py
             .github/scripts/governance/github_governance/audit.py
@@ -111,6 +112,7 @@ jobs:
             .github/workflows/55-milestone-acceptance-finalize.yml
             .github/workflows/40-stale.yml
             tests/governance/test_bootstrap_docs.py
+            tests/governance/test_validate_rollout.py
             tests/governance/test_milestones.py
             tests/governance/test_milestone_chain.py
           )

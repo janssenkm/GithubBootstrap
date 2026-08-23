@@ -161,6 +161,30 @@ stage, the failure, and the safe resume point.
 9. **Handoff** — report initialized files and remote state, validation results,
    remaining choices, intentionally deferred work, and exact next steps.
 
+Before applying a remote batch, capture a read-only rollout report:
+
+```bash
+.github/scripts/validate-rollout --repository "<owner>/<repo>" --root .
+```
+
+The validator uses only local Git reads and repository-scoped GitHub REST GET
+requests. It never applies settings, creates labels, dispatches workflows, or
+performs any other rollout mutation. Exit `0` means the observed state is
+ready; exit `1` means deterministic findings remain; exit `2` is command-line
+misuse; and exit `5` means policy or required API evidence is unavailable or
+malformed. Its canonical JSON separates `observed`, `unknown`, `blocked`, and
+identified findings. Treat every nonzero result as a stop before rollout; fix
+or explicitly resolve the evidence gap, then run it again. Template-source
+mode and generated-project mode are reported separately and are not evidence
+that one inherits the other's remote configuration. The validator also blocks
+on any staged, unstaged, or untracked path, invalid policy schema or actor/check
+list, ambiguous remote identifier, incomplete pagination, or unavailable
+default-branch SHA. Run it from the clean commit that is intended for rollout.
+Only the exact documented identity `janssenkm/GithubBootstrap`, with a matching
+local GitHub `origin` and `is_template: true` read back from GitHub, receives
+template-source treatment; a fork or another template-enabled repository is a
+generated project and must configure all four trust lists.
+
 The recommendations and example commands in [`.github/SETTINGS.md`](.github/SETTINGS.md)
 support the remote stages. Adapt them to the confirmed target and governance;
 do not treat that file as proof of remote state.

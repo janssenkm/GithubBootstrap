@@ -196,11 +196,22 @@ def test_required_file_lists_include_v2_agent_and_doc_assets(repository_root):
         ".agents/skills/issue-review/SKILL.md",
         ".agents/skills/issue-promote/SKILL.md",
         "tests/governance/test_bootstrap_docs.py",
+        ".github/scripts/validate-rollout",
+        "tests/governance/test_validate_rollout.py",
     )
     for manifest in manifests:
         text = _text(repository_root, manifest)
         for path in required:
             assert path in text
+
+
+def test_bootstrap_documents_read_only_rollout_validation(repository_root):
+    combined = _text(repository_root, "BOOTSTRAP.md") + _text(repository_root, ".github/SETTINGS.md")
+    assert ".github/scripts/validate-rollout" in combined
+    assert "repository-scoped" in combined
+    assert "canonical JSON" in combined
+    assert "Exit `0`" in combined and "exit `5`" in combined
+    assert "cannot create labels" in combined
 
 
 def test_settings_is_human_runbook_not_yaml(repository_root):
