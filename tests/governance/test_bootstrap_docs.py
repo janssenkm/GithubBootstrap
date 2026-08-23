@@ -214,12 +214,29 @@ def test_bootstrap_documents_read_only_rollout_validation(repository_root):
     assert "cannot create labels" in combined
 
 
+def test_generated_projects_must_replace_template_source_trust_bindings(repository_root):
+    settings = " ".join(_text(repository_root, ".github/SETTINGS.md").split())
+    assert "janssenkm" in settings and "chacha20" in settings
+    assert "must replace all four trusted actor lists" in settings
+    assert "must not inherit" in settings
+    assert "TRUST-LISTS-EMPTY" in settings
+
+
 def test_settings_is_human_runbook_not_yaml(repository_root):
     settings = repository_root / ".github/SETTINGS.md"
     assert settings.is_file()
     assert not (repository_root / ".github/settings.yml").exists()
     policy = yaml.safe_load(_text(repository_root, ".github/project-policy.yml"))
     assert policy["rollout_mode"] == "dry-run"
-    assert policy["trusted_issue_authors"] == []
-    assert policy["trusted_developers"] == []
-    assert policy["trusted_reviewers"] == []
+    for capability in (
+        "trusted_issue_authors",
+        "trusted_developers",
+        "trusted_reviewers",
+        "trusted_milestone_acceptors",
+    ):
+        assert policy[capability]
+    assert set(policy["trusted_issue_authors"]).isdisjoint(policy["trusted_reviewers"])
+    assert policy["required_milestone_checks"] == [
+        "Configuration Validation",
+        "Security Scanning",
+    ]

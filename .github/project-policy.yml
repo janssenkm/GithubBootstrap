@@ -1,10 +1,15 @@
 schema_version: 1
 rollout_mode: dry-run
-trusted_issue_authors: []
-trusted_developers: []
-trusted_reviewers: []
-trusted_milestone_acceptors: []
+trusted_issue_authors:
+  - janssenkm
+trusted_developers:
+  - janssenkm
+trusted_reviewers:
+  - chacha20
+trusted_milestone_acceptors:
+  - chacha20
 required_milestone_checks:
-  - Quality Gate
+  - Configuration Validation
+  - Security Scanning
 allowed_verification_commands:
   - test -f README.md

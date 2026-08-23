@@ -88,13 +88,19 @@ descriptions, before running either loop.
 ## 5. Trusted actors and staged rollout
 
 Customize [`.github/project-policy.yml`](project-policy.yml) for the generated
-project. Empty `trusted_issue_authors`, `trusted_developers`, and
-`trusted_reviewers` lists are the safe template default. The empty
-`trusted_milestone_acceptors` list likewise authorizes no acceptance. Configure
-`required_milestone_checks` with exact observed check names; absent, duplicate,
-incomplete, or non-success checks block acceptance. These defaults fail closed: no
-actor can pass the corresponding governed operation. Reviewer separation and
-the exact `allowed_verification_commands` must be selected for the project.
+project. The template source repository currently binds `janssenkm` in
+`trusted_issue_authors` and `trusted_developers`, and `chacha20` in
+`trusted_reviewers` and `trusted_milestone_acceptors`, solely for the template
+source's own dry-run rollout. A generated project must replace all four trusted
+actor lists with its own explicitly authorized GitHub logins and must not
+inherit these template-source bindings. If any list is left empty,
+`validate-rollout` reports
+`TRUST-LISTS-EMPTY` and fails closed.
+
+Configure `required_milestone_checks` with exact observed check names; absent,
+duplicate, incomplete, or non-success checks block acceptance. Reviewer
+separation and the exact `allowed_verification_commands` must be selected for
+the project.
 
 Keep `rollout_mode: dry-run` while validating labels and event decisions. After
 reviewing evidence, advance deliberately through `shadow`, then `warn`, and

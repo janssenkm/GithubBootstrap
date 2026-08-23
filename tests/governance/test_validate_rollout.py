@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = ".github/scripts/validate-rollout"
 
@@ -109,12 +111,11 @@ def _fixture(repository_root: Path) -> dict:
 
 def test_ready_output_is_canonical_and_commands_are_read_only(repository_root, tmp_path):
     fixture = _fixture(repository_root)
-    # Trust lists are intentionally empty in the template checkout, so readiness is blocked.
     result, report, calls = _run(repository_root, tmp_path, fixture)
     assert result.returncode == 5
     assert any(item["id"] == "LOCAL-WORKTREE-DIRTY" for item in report["blocked"])
     assert report["schema_version"] == 1
-    assert "TRUST-LISTS-EMPTY" in {item["id"] for item in report["blocked"]}
+    assert "TRUST-LISTS-EMPTY" not in {item["id"] for item in report["blocked"]}
     assert result.stdout.strip() == json.dumps(report, sort_keys=True, separators=(",", ":"))
     for args in calls:
         assert args[0] == "api"
@@ -253,8 +254,7 @@ def test_rejects_strict_repository_injections_without_calling_gh(repository_root
 def test_fourth_trust_list_and_ruleset_applicability_are_enforced(repository_root, tmp_path):
     fixture = _fixture(repository_root)
     result, report, _ = _run(repository_root, tmp_path / "trust", fixture)
-    finding = next(item for item in report["blocked"] if item["id"] == "TRUST-LISTS-EMPTY")
-    assert "trusted_milestone_acceptors" in finding["message"]
+    assert not any(item["id"] == "TRUST-LISTS-EMPTY" for item in report["blocked"])
 
     fixture = _fixture(repository_root)
     fixture["repos/acme/widget/rulesets?per_page=100&page=1"] = [
@@ -278,7 +278,7 @@ def test_noncanonical_template_flag_does_not_bypass_generated_trust(repository_r
     result, report, _ = _run(repository_root, tmp_path, fixture)
     assert result.returncode == 5
     assert report["observed"]["remote"]["scenario"] == "generated-project"
-    assert any(item["id"] == "TRUST-LISTS-EMPTY" for item in report["blocked"])
+    assert not any(item["id"] == "TRUST-LISTS-EMPTY" for item in report["blocked"])
     assert any(item["id"] == "TEMPLATE-IDENTITY-MISMATCH" for item in report["findings"])
 
 
@@ -332,8 +332,7 @@ def test_invalid_full_policy_schema_fails_closed(repository_root, tmp_path):
     assert any(item["id"] == "LOCAL-POLICY-INVALID" for item in report["blocked"])
 
 
-def test_clean_committed_generated_repository_can_be_ready(repository_root, tmp_path):
-    local = tmp_path / "ready-local"
+def _clean_generated_repository(repository_root: Path, local: Path, **policy_updates) -> Path:
     (local / ".github/schemas").mkdir(parents=True)
     (local / ".github/workflows").mkdir(parents=True)
     (local / ".github/scripts").mkdir(parents=True)
@@ -348,13 +347,46 @@ def test_clean_committed_generated_repository_can_be_ready(repository_root, tmp_
         trusted_milestone_acceptors=["acceptor"],
         required_milestone_checks=["Quality Gate"],
     )
+    policy.update(policy_updates)
     (local / ".github/project-policy.yml").write_text(__import__("yaml").safe_dump(policy), encoding="utf-8")
     subprocess.run(["git", "init", "-b", "main"], cwd=local, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test Human"], cwd=local, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=local, check=True)
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/acme/widget.git"], cwd=local, check=True)
     subprocess.run(["git", "add", "."], cwd=local, check=True)
-    subprocess.run(["git", "commit", "-m", "ready fixture"], cwd=local, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "rollout fixture"], cwd=local, check=True, capture_output=True)
+    return local
+
+
+@pytest.mark.parametrize(
+    "capability",
+    (
+        "trusted_issue_authors",
+        "trusted_developers",
+        "trusted_reviewers",
+        "trusted_milestone_acceptors",
+    ),
+)
+def test_each_empty_trust_list_fails_closed_without_remote_mutation(repository_root, tmp_path, capability):
+    local = _clean_generated_repository(
+        repository_root,
+        tmp_path / capability / "local",
+        **{capability: []},
+    )
+    result, report, calls = _run(local, tmp_path / capability / "api", _fixture(local))
+    assert result.returncode == 5
+    finding = next(item for item in report["blocked"] if item["id"] == "TRUST-LISTS-EMPTY")
+    assert finding == {
+        "id": "TRUST-LISTS-EMPTY",
+        "message": f"generated project has empty trust lists: {capability}",
+    }
+    for args in calls:
+        assert args[0:3] == ["api", "--method", "GET"]
+        assert not any(word in " ".join(args).lower() for word in ("post", "put", "patch", "delete", "graphql", "dispatch"))
+
+
+def test_clean_committed_generated_repository_can_be_ready(repository_root, tmp_path):
+    local = _clean_generated_repository(repository_root, tmp_path / "ready-local")
     fixture = _fixture(local)
     result, report, _ = _run(local, tmp_path / "ready-api", fixture)
     assert result.returncode == 0
