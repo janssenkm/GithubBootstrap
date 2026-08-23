@@ -87,6 +87,18 @@ def _fixture(repository_root: Path) -> dict:
         }
     )
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository_root, text=True).strip()
+    policy = __import__("yaml").safe_load((repository_root / ".github/project-policy.yml").read_text())
+    required = policy["required_milestone_checks"]
+    jobs = [{"id": 20 + i, "name": name, "conclusion": "success",
+             "html_url": f"https://github.com/acme/widget/actions/runs/10/job/{20+i}"}
+            for i, name in enumerate(required)]
+    checks = [
+        {"id": 30 + i, "name": name, "status": "completed", "conclusion": "success", "head_sha": sha,
+         "details_url": f"https://github.com/acme/widget/actions/runs/10/job/{20+i}",
+         "app": {"id": 15368, "slug": "github-actions"}, "check_suite": {"id": 40}}
+        for i, name in enumerate(required)
+    ]
+    contexts = [{"context": name, "integration_id": 15368} for name in required]
     return {
         "repos/acme/widget": {"id": 1, "full_name": "acme/widget", "default_branch": "main", "is_template": False},
         "repos/acme/widget/branches/main": {"name": "main", "commit": {"sha": sha}},
@@ -96,15 +108,15 @@ def _fixture(repository_root: Path) -> dict:
         "repos/acme/widget/actions/workflows?per_page=100&page=2": {"workflows": []},
         "repos/acme/widget/labels?per_page=100&page=1": [{"id": index, "name": label} for index, label in enumerate(labels, 100)],
         "repos/acme/widget/labels?per_page=100&page=2": [],
-        "repos/acme/widget/actions/runs?branch=main&per_page=100&page=1": {"workflow_runs": [{"id": 10, "head_sha": sha, "status": "completed", "conclusion": "success"}]},
+        "repos/acme/widget/actions/runs?branch=main&per_page=100&page=1": {"workflow_runs": [{"id": 10, "workflow_id": 1, "run_attempt": 1, "head_sha": sha, "status": "completed", "conclusion": "success"}]},
         "repos/acme/widget/actions/runs?branch=main&per_page=100&page=2": {"workflow_runs": []},
-        "repos/acme/widget/actions/runs/10/jobs?per_page=100&page=1": {"jobs": [{"id": 20, "name": "Quality Gate", "conclusion": "success"}]},
+        "repos/acme/widget/actions/runs/10/jobs?per_page=100&page=1": {"jobs": jobs},
         "repos/acme/widget/actions/runs/10/jobs?per_page=100&page=2": {"jobs": []},
-        f"repos/acme/widget/commits/{sha}/check-runs?per_page=100&page=1": {"check_runs": [{"id": 30, "name": "Quality Gate", "conclusion": "success"}]},
-        f"repos/acme/widget/commits/{sha}/check-runs?per_page=100&page=2": {"check_runs": []},
-        "repos/acme/widget/rulesets?per_page=100&page=1": [{"id": 1, "name": "Main Branch Protection", "enforcement": "active", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}, "rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Quality Gate"}]}}]}],
+        f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1": {"check_runs": checks},
+        f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=2": {"check_runs": []},
+        "repos/acme/widget/rulesets?per_page=100&page=1": [{"id": 1, "name": "Main Branch Protection", "enforcement": "active", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}, "rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": contexts}}]}],
         "repos/acme/widget/rulesets?per_page=100&page=2": [],
-        "repos/acme/widget/rulesets/1": {"id": 1, "name": "Main Branch Protection", "target": "branch", "enforcement": "active", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}, "rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Quality Gate"}]}}]},
+        "repos/acme/widget/rulesets/1": {"id": 1, "name": "Main Branch Protection", "target": "branch", "enforcement": "active", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}, "rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": contexts}}]},
         "repos/acme/widget/milestones?state=all&per_page=100&page=1": [],
     }
 
@@ -130,12 +142,13 @@ def test_detects_missing_labels_v1_workflows_checks_and_ruleset_mismatch(reposit
     fixture["repos/acme/widget/actions/workflows?per_page=100&page=1"] = {"workflows": [{"id": 999, "path": ".github/workflows/00-issue-ai-triage.yml", "state": "active"}]}
     fixture["repos/acme/widget/actions/runs/10/jobs?per_page=100&page=1"] = {"jobs": []}
     sha = fixture["repos/acme/widget/branches/main"]["commit"]["sha"]
-    fixture[f"repos/acme/widget/commits/{sha}/check-runs?per_page=100&page=1"] = {"check_runs": [{"id": 30, "name": "Quality Gate", "conclusion": "success"}, {"id": 31, "name": "Quality Gate", "conclusion": "success"}]}
+    base = fixture[f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1"]["check_runs"][0]
+    fixture[f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1"] = {"check_runs": [base, base | {"id": 31, "app": {"id": 999, "slug": "other"}, "check_suite": {"id": 41}}]}
     fixture["repos/acme/widget/rulesets?per_page=100&page=1"] = []
     result, report, _ = _run(repository_root, tmp_path, fixture)
     ids = {item["id"] for section in ("findings", "blocked") for item in report[section]}
     assert result.returncode == 5
-    assert {"LABELS-MISSING", "REMOTE-WORKFLOWS-MISMATCH", "REQUIRED-CHECK-AMBIGUOUS", "RULESET-ABSENT"} <= ids
+    assert {"LABELS-MISSING", "REMOTE-WORKFLOWS-MISMATCH", "RULESET-ABSENT"} <= ids
 
 
 def test_403_and_malformed_json_fail_closed_without_secret_echo(repository_root, tmp_path):
@@ -345,7 +358,7 @@ def _clean_generated_repository(repository_root: Path, local: Path, **policy_upd
         trusted_developers=["developer"],
         trusted_reviewers=["reviewer"],
         trusted_milestone_acceptors=["acceptor"],
-        required_milestone_checks=["Quality Gate"],
+        required_milestone_checks=["Configuration Validation", "Security Scanning"],
     )
     policy.update(policy_updates)
     (local / ".github/project-policy.yml").write_text(__import__("yaml").safe_dump(policy), encoding="utf-8")
@@ -393,3 +406,108 @@ def test_clean_committed_generated_repository_can_be_ready(repository_root, tmp_
     assert report["blocked"] == []
     assert report["findings"] == []
     assert report["unknown"] == []
+
+
+def test_required_checks_come_only_from_policy(repository_root, tmp_path):
+    local = _clean_generated_repository(
+        repository_root, tmp_path / "local",
+        required_milestone_checks=["Configuration Validation", "Security Scanning"],
+    )
+    fixture = _fixture(local)
+    sha = fixture["repos/acme/widget/branches/main"]["commit"]["sha"]
+    fixture["repos/acme/widget/actions/runs/10/jobs?per_page=100&page=1"] = {"jobs": [
+        {"id": 20, "name": "Configuration Validation", "conclusion": "success", "html_url": "https://github.com/acme/widget/actions/runs/10/job/20"},
+        {"id": 21, "name": "Security Scanning", "conclusion": "success", "html_url": "https://github.com/acme/widget/actions/runs/10/job/21"},
+    ]}
+    fixture[f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1"] = {"check_runs": [
+        {"id": 30 + i, "name": name, "status": "completed", "conclusion": "success", "head_sha": sha,
+         "details_url": f"https://github.com/acme/widget/actions/runs/10/job/{20+i}",
+         "app": {"id": 15368, "slug": "github-actions"}, "check_suite": {"id": 40}}
+        for i, name in enumerate(("Configuration Validation", "Security Scanning"))
+    ]}
+    required = [{"context": name, "integration_id": 15368} for name in ("Configuration Validation", "Security Scanning")]
+    fixture["repos/acme/widget/rulesets/1"]["rules"][0]["parameters"]["required_status_checks"] = required
+    result, report, calls = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 0
+    assert not any("Quality Gate" in item["message"] for section in ("blocked", "findings") for item in report[section])
+    assert any("filter=latest" in call[-1] for call in calls)
+
+
+def test_exact_dependabot_dynamic_workflow_is_observed_but_not_local_drift(repository_root, tmp_path):
+    fixture = _fixture(repository_root)
+    workflows = fixture["repos/acme/widget/actions/workflows?per_page=100&page=1"]["workflows"]
+    workflows.append({"id": 900, "name": "Dependabot Updates", "path": "dynamic/dependabot/dependabot-updates", "state": "active"})
+    result, report, _ = _run(repository_root, tmp_path / "api", fixture)
+    assert result.returncode == 5
+    assert report["observed"]["remote"]["workflow_count"] == 15
+    assert report["observed"]["remote"]["allowlisted_dynamic_workflows"] == ["dynamic/dependabot/dependabot-updates"]
+    assert not any(item["id"] == "REMOTE-WORKFLOWS-MISMATCH" for item in report["findings"])
+
+
+@pytest.mark.parametrize("workflow", [
+    {"id": 900, "name": "Dependabot Updates", "path": "dynamic/other", "state": "active"},
+    {"id": 900, "name": "dependabot updates", "path": "dynamic/dependabot/dependabot-updates", "state": "active"},
+    {"id": 900, "name": "Dependabot Updates", "path": "Dynamic/dependabot/dependabot-updates", "state": "active"},
+])
+def test_near_match_dynamic_workflow_is_malformed(repository_root, tmp_path, workflow):
+    local = _clean_generated_repository(repository_root, tmp_path / "local")
+    fixture = _fixture(local)
+    fixture["repos/acme/widget/actions/workflows?per_page=100&page=1"]["workflows"].append(workflow)
+    result, report, _ = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 5
+    assert any(item["id"] == "API-MALFORMED" for item in report["blocked"])
+
+
+def test_nonrequired_duplicate_check_names_do_not_block(repository_root, tmp_path):
+    local = _clean_generated_repository(repository_root, tmp_path / "local")
+    fixture = _fixture(local)
+    sha = fixture["repos/acme/widget/branches/main"]["commit"]["sha"]
+    checks = fixture[f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1"]["check_runs"]
+    for i in (1, 2):
+        checks.append({"id": 100+i, "name": "dependabot/dependabot-updates", "status": "completed",
+                       "conclusion": "success", "head_sha": sha, "details_url": "https://github.com/acme/widget",
+                       "app": {"id": 49699333+i, "slug": f"dependabot-{i}"}, "check_suite": {"id": 200+i}})
+    result, report, _ = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 0
+    assert not any(item["id"] == "CHECK-NAMES-DUPLICATE" for item in report["blocked"])
+
+
+@pytest.mark.parametrize("bad_url", [
+    "https://attacker.example/acme/widget/actions/runs/10/job/20",
+    "https://github.com/acme/other/actions/runs/10/job/20",
+    "https://github.com/acme/widget/actions/runs/999/job/20",
+    "https://github.com/acme/widget/actions/runs/10/job/999",
+    "https://github.com/acme/widget/actions/runs/10/job/20/",
+])
+def test_required_actions_check_rejects_unbound_details_url(repository_root, tmp_path, bad_url):
+    local = _clean_generated_repository(repository_root, tmp_path / "local")
+    fixture = _fixture(local)
+    sha = fixture["repos/acme/widget/branches/main"]["commit"]["sha"]
+    fixture[f"repos/acme/widget/commits/{sha}/check-runs?filter=latest&per_page=100&page=1"]["check_runs"][0]["details_url"] = bad_url
+    result, report, _ = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 5
+    assert any(item["id"] == "REQUIRED-CHECK-PROVENANCE-INVALID" for item in report["blocked"])
+
+
+def test_ruleset_integration_conflict_blocks(repository_root, tmp_path):
+    local = _clean_generated_repository(repository_root, tmp_path / "local")
+    fixture = _fixture(local)
+    fixture["repos/acme/widget/rulesets?per_page=100&page=1"].append({"id": 2, "name": "Conflicting", "enforcement": "active"})
+    detail = json.loads(json.dumps(fixture["repos/acme/widget/rulesets/1"]))
+    detail.update(id=2, name="Conflicting")
+    detail["rules"][0]["parameters"]["required_status_checks"][0]["integration_id"] = 999
+    fixture["repos/acme/widget/rulesets/2"] = detail
+    result, report, _ = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 5
+    assert any(item["id"] == "RULESET-CONTEXT-CONFLICT" for item in report["blocked"])
+
+
+def test_duplicate_run_provenance_blocks_before_latest_attempt_selection(repository_root, tmp_path):
+    local = _clean_generated_repository(repository_root, tmp_path / "local")
+    fixture = _fixture(local)
+    runs = fixture["repos/acme/widget/actions/runs?branch=main&per_page=100&page=1"]["workflow_runs"]
+    runs.append(runs[0] | {"id": 11})
+    result, report, calls = _run(local, tmp_path / "api", fixture)
+    assert result.returncode == 5
+    assert any(item["id"] == "RUN-PROVENANCE-DUPLICATE" for item in report["blocked"])
+    assert not any(call[-1].startswith("repos/acme/widget/actions/runs/11/jobs") for call in calls)

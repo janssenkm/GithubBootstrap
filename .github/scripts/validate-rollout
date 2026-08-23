@@ -137,13 +137,22 @@ def main():
  if not isinstance(wp,dict) or wp.get("default_workflow_permissions") not in {"read","write"} or not isinstance(wp.get("can_approve_pull_request_reviews"),bool):gh.block("ACTIONS-PERMISSIONS-INVALID","workflow token permissions response is invalid")
  elif wp["default_workflow_permissions"]!="read" or wp["can_approve_pull_request_reviews"]:r.add("findings","ACTIONS-PERMISSIONS-MISMATCH","workflow token permissions differ from baseline")
  if isinstance(perms,dict) and isinstance(wp,dict):r.v["observed"]["actions"]={"allowed_actions":perms.get("allowed_actions"),"enabled":perms.get("enabled"),"can_approve_pull_request_reviews":wp.get("can_approve_pull_request_reviews"),"default_workflow_permissions":wp.get("default_workflow_permissions")}
- wvalid=lambda x:isinstance(x,dict) and posid(x.get("id")) and isinstance(x.get("path"),str) and re.fullmatch(r"\.github/workflows/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml",x["path"]) is not None and x.get("state") in {"active","disabled_inactivity","disabled_manually"}
- rw=gh.pages("/actions/workflows","workflows",wvalid,lambda x:x["id"])
+ def wvalid(x):
+  if not isinstance(x,dict) or not posid(x.get("id")) or x.get("state") not in {"active","disabled_inactivity","disabled_manually"}:return False
+  path=x.get("path")
+  if isinstance(path,str) and re.fullmatch(r"\.github/workflows/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml",path):return True
+  return path=="dynamic/dependabot/dependabot-updates" and x.get("name")=="Dependabot Updates"
+ rw=gh.pages("/actions/workflows","workflows",wvalid,lambda x:x["id"]);shipped_workflow_ids=set()
  if rw is not None:
   paths=[x["path"] for x in rw]
   if len(paths)!=len(set(paths)):r.add("blocked","REMOTE-WORKFLOWS-DUPLICATE","remote workflow paths are duplicated")
-  active=sorted(x["path"].removeprefix(".github/workflows/") for x in rw if x["state"]=="active");r.v["observed"]["remote"]["workflow_count"]=len(active)
-  if active!=localwf:r.add("findings","REMOTE-WORKFLOWS-MISMATCH","active remote workflows do not match local inventory")
+  active=[x for x in rw if x["state"]=="active"]
+  shipped=sorted(x["path"].removeprefix(".github/workflows/") for x in active if x["path"].startswith(".github/workflows/"))
+  shipped_workflow_ids={x["id"] for x in active if x["path"].startswith(".github/workflows/")}
+  dynamic=sorted(x["path"] for x in active if x["path"].startswith("dynamic/"))
+  r.v["observed"]["remote"]["workflow_count"]=len(shipped)
+  if dynamic:r.v["observed"]["remote"]["allowlisted_dynamic_workflows"]=dynamic
+  if shipped!=localwf:r.add("findings","REMOTE-WORKFLOWS-MISMATCH","active remote workflows do not match local inventory")
  lvalid=lambda x:isinstance(x,dict) and posid(x.get("id")) and safe_text(x.get("name"))
  labels=gh.pages("/labels",None,lvalid,lambda x:x["id"])
  if labels is not None:
@@ -151,29 +160,43 @@ def main():
   if len(names)!=len(set(names)):r.add("blocked","REMOTE-LABELS-DUPLICATE","remote label names are duplicated")
   missing=sorted(LABELS-set(names));r.v["observed"]["remote"]["label_count"]=len(names)
   if missing:r.add("findings","LABELS-MISSING","required rollout labels are missing: "+", ".join(missing))
- runok=lambda x:isinstance(x,dict) and posid(x.get("id")) and SHA_RE.fullmatch(str(x.get("head_sha",""))) and x.get("status") in {"queued","in_progress","completed","requested","waiting","pending"} and (x.get("conclusion") is None or x.get("conclusion") in CONCLUSIONS)
+ runok=lambda x:isinstance(x,dict) and posid(x.get("id")) and posid(x.get("workflow_id")) and posid(x.get("run_attempt")) and SHA_RE.fullmatch(str(x.get("head_sha",""))) and x.get("status") in {"queued","in_progress","completed","requested","waiting","pending"} and (x.get("conclusion") is None or x.get("conclusion") in CONCLUSIONS)
  named=lambda x:isinstance(x,dict) and posid(x.get("id")) and safe_text(x.get("name")) and (x.get("conclusion") is None or x.get("conclusion") in CONCLUSIONS)
+ jobok=lambda x:named(x) and safe_text(x.get("html_url"))
  jobs=[];runs=gh.pages(f"/actions/runs?branch={quote(branch,safe='')}","workflow_runs",runok,lambda x:x["id"]) if branch else None
  if runs is not None and sha:
+  provenance=set()
   for run in runs:
-   if run.get("head_sha")==sha and run["status"]=="completed":
-    js=gh.pages(f"/actions/runs/{run['id']}/jobs","jobs",named,lambda x:x["id"])
-    if js is not None:jobs+=js
+   if run.get("head_sha")!=sha or run["workflow_id"] not in shipped_workflow_ids:continue
+   key=(run["workflow_id"],run["run_attempt"])
+   if key in provenance:r.add("blocked","RUN-PROVENANCE-DUPLICATE","distinct workflow runs share a workflow ID and run attempt")
+   provenance.add(key)
+  latest={}
+  for run in runs:
+   if run.get("head_sha")==sha and run["status"]=="completed" and run["workflow_id"] in shipped_workflow_ids:
+    key=run["workflow_id"]
+    if key not in latest or run["run_attempt"]>latest[key]["run_attempt"]:latest[key]=run
+  for run in latest.values():
+    js=gh.pages(f"/actions/runs/{run['id']}/jobs","jobs",jobok,lambda x:x["id"])
+    if js is not None:
+     seen=set()
+     for job in js:
+      if job["name"] in seen:r.add("blocked","JOB-NAMES-DUPLICATE","workflow job names repeat within one run")
+      expected=f"https://github.com/{a.repository}/actions/runs/{run['id']}/job/{job['id']}"
+      if job["html_url"]!=expected:r.add("blocked","JOB-PROVENANCE-INVALID","workflow job URL does not match its repository, run, and job IDs")
+      seen.add(job["name"]);job["_workflow_id"]=run["workflow_id"];job["_run_id"]=run["id"];job["_run_attempt"]=run["run_attempt"];job["_head_sha"]=run["head_sha"]
+     jobs+=js
  if len([x["id"] for x in jobs])!=len({x["id"] for x in jobs}):r.add("blocked","JOB-IDS-DUPLICATE","workflow job IDs repeat across runs")
- checks=gh.pages(f"/commits/{sha}/check-runs","check_runs",named,lambda x:x["id"]) if sha else None;required=(set(pol["required_milestone_checks"]) if pol else set())|{"Quality Gate"}
- if checks is not None:
-  names=[x["name"] for x in checks]
-  for n in sorted(required):
-   m=[x for x in checks if x["name"]==n]
-   if not m:r.add("findings","REQUIRED-CHECK-UNOBSERVED",f"required check has not been observed: {n}")
-   elif len(m)>1:r.add("blocked","REQUIRED-CHECK-AMBIGUOUS",f"required check context is duplicated: {n}")
-   elif m[0].get("conclusion")!="success":r.add("findings","REQUIRED-CHECK-NOT-SUCCESS",f"required check is not successful: {n}")
-  if len(names)!=len(set(names)):r.add("blocked","CHECK-NAMES-DUPLICATE","remote check-run names are ambiguous")
- sj=[x["name"] for x in jobs if x.get("conclusion")=="success"]
- if len(sj)!=len(set(sj)):r.add("blocked","JOB-NAMES-DUPLICATE","successful workflow job names are ambiguous")
- for n in sorted(required-set(sj)):r.add("findings","REQUIRED-JOB-UNOBSERVED",f"successful workflow job has not been observed: {n}")
+ def checkok(x):
+  return (isinstance(x,dict) and posid(x.get("id")) and safe_text(x.get("name")) and
+   x.get("status") in {"queued","in_progress","completed","requested","waiting","pending"} and
+   (x.get("conclusion") is None or x.get("conclusion") in CONCLUSIONS) and x.get("head_sha")==sha and
+   safe_text(x.get("details_url")) and isinstance(x.get("app"),dict) and posid(x["app"].get("id")) and
+   safe_text(x["app"].get("slug")) and isinstance(x.get("check_suite"),dict) and posid(x["check_suite"].get("id")))
+ checks=gh.pages(f"/commits/{sha}/check-runs?filter=latest","check_runs",checkok,lambda x:x["id"]) if sha else None
+ required=set(pol["required_milestone_checks"]) if pol else set()
  rsok=lambda x:isinstance(x,dict) and posid(x.get("id")) and safe_text(x.get("name")) and x.get("enforcement") in {"active","evaluate","disabled"}
- rulesets=gh.pages("/rulesets",None,rsok,lambda x:x["id"]);app=[]
+ rulesets=gh.pages("/rulesets",None,rsok,lambda x:x["id"]);app=[];required_specs=[]
  if rulesets is not None:
   for summary in rulesets:
    if summary["enforcement"]!="active":continue
@@ -190,13 +213,44 @@ def main():
      params=rule.get("parameters")
      if not isinstance(params,dict):valid=False;break
      vals=params.get("required_status_checks")
-     if not isinstance(vals,list) or not all(isinstance(v,dict) and isinstance(v.get("context"),str) and v["context"] for v in vals):valid=False;break
-     contexts += [v["context"] for v in vals]
+     if not isinstance(vals,list) or not all(isinstance(v,dict) and safe_text(v.get("context")) and ("integration_id" not in v or posid(v["integration_id"])) for v in vals):valid=False;break
+     contexts += [v["context"] for v in vals];required_specs += vals
    if not valid:gh.block("API-MALFORMED","ruleset rules are invalid");continue
    if len(contexts)!=len(set(contexts)):r.add("blocked","RULESET-CONTEXTS-DUPLICATE","an applicable ruleset contains duplicate required contexts")
    app.append(set(contexts))
   if not app:r.add("findings","RULESET-ABSENT","no active ruleset targets default branch")
-  elif not any(required<=c for c in app):r.add("findings","RULESET-CHECKS-MISMATCH","no single applicable ruleset contains all required checks")
+  elif not all(required<=c for c in app):r.add("findings","RULESET-CHECKS-MISMATCH","an applicable ruleset does not contain all required checks")
+  for n in sorted(required):
+   ids={v["integration_id"] for v in required_specs if v["context"]==n and "integration_id" in v}
+   if len(ids)>1:r.add("blocked","RULESET-CONTEXT-CONFLICT",f"applicable rulesets require conflicting integrations for: {n}")
+ if checks is not None:
+  selected_by_name={}
+  for n in sorted(required):
+   candidates=[x for x in checks if x["name"]==n]
+   specs=[x for x in required_specs if x["context"]==n]
+   integration_ids={x["integration_id"] for x in specs if "integration_id" in x}
+   if integration_ids:candidates=[x for x in candidates if x["app"]["id"] in integration_ids]
+   if not candidates:r.add("findings","REQUIRED-CHECK-UNOBSERVED",f"required check has not been observed: {n}")
+   else:
+    apps={x["app"]["id"] for x in candidates}
+    if not integration_ids and len(apps)>1:r.add("blocked","REQUIRED-CHECK-AMBIGUOUS",f"required check has multiple app integrations: {n}")
+    latest_suite={}
+    for x in candidates:
+     key=(x["app"]["id"],x["check_suite"]["id"])
+     if key not in latest_suite or x["id"]>latest_suite[key]["id"]:latest_suite[key]=x
+    selected=list(latest_suite.values())
+    selected_by_name[n]=selected
+    if any(x.get("conclusion")!="success" for x in selected):r.add("findings","REQUIRED-CHECK-NOT-SUCCESS",f"required check is not successful: {n}")
+  successful=[x for x in jobs if x.get("conclusion")=="success"]
+  for n in sorted(required):
+   actions_checks=[x for x in selected_by_name.get(n,[]) if x["app"]["slug"]=="github-actions"]
+   if not actions_checks:continue
+   matched=[x for x in successful if x["name"]==n]
+   if not matched:r.add("findings","REQUIRED-JOB-UNOBSERVED",f"successful workflow job has not been observed: {n}")
+   elif len({x["_workflow_id"] for x in matched})>1:r.add("blocked","REQUIRED-JOB-AMBIGUOUS",f"required job name occurs in distinct workflows: {n}")
+   for check in actions_checks:
+    bound=[job for job in matched if check["details_url"]==job["html_url"] and job["_head_sha"]==check["head_sha"]]
+    if len(bound)!=1:r.add("blocked","REQUIRED-CHECK-PROVENANCE-INVALID",f"required GitHub Actions check is not bound to one authoritative job: {n}")
  mok=lambda x:isinstance(x,dict) and posid(x.get("id")) and posid(x.get("number")) and safe_text(x.get("title")) and x.get("state") in {"open","closed"}
  ms=gh.pages("/milestones?state=all",None,mok,lambda x:x["id"])
  if ms is not None:r.v["observed"]["remote"]["milestone_count"]=len(ms)
