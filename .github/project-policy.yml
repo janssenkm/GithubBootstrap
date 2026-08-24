@@ -1,5 +1,5 @@
 schema_version: 1
-rollout_mode: dry-run
+rollout_mode: enforce
 trusted_issue_authors:
   - janssenkm
 trusted_developers:
