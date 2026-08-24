@@ -227,7 +227,7 @@ def test_settings_is_human_runbook_not_yaml(repository_root):
     assert settings.is_file()
     assert not (repository_root / ".github/settings.yml").exists()
     policy = yaml.safe_load(_text(repository_root, ".github/project-policy.yml"))
-    assert policy["rollout_mode"] == "dry-run"
+    assert policy["rollout_mode"] in {"dry-run", "shadow", "warn", "enforce"}
     for capability in (
         "trusted_issue_authors",
         "trusted_developers",

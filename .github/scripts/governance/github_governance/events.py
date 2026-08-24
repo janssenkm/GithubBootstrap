@@ -1241,7 +1241,7 @@ def _promotion_chain(
     repository_id: int,
     repository: str,
     repository_root: str,
-    ready_source_comment_id: int,
+    ready_source_comment_id: int = 0,
 ) -> dict[str, Any]:
     """Verify bot-authored Engineering provenance through the Candidate chain."""
 
@@ -1564,7 +1564,10 @@ def _read_phase(event: dict[str, Any]) -> int:
 
         findings = ready_findings(contract, policy, ".") if contract.get("status") == "contracted" else []
         try:
-            _promotion_chain(api, issue, contract, policy, repository_id, full_name, ".")
+            _promotion_chain(
+                api, issue, contract, policy, repository_id, full_name, ".",
+                command.source_comment_id if command is not None and command.action == "ready" else 0,
+            )
         except GovernanceError as error:
             findings.append(error.finding)
         operation = command.action if command is not None else "promotion-target-verification"

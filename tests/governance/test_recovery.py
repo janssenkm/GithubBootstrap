@@ -997,3 +997,89 @@ def test_target_comment_timeline_rejects_unbound_or_non_monotonic_history(valid_
             api, 55, "owner/repo", 7, command, SourceComment.from_api(source_api), policy,
             90, "https://example.invalid/runs/90", repository_root="."
         )
+
+
+def _engineering_ready_context(valid_contract, policy):
+    """Promote an attested Candidate and return the Engineering Issue state."""
+
+    api, digest = _attested_candidate(valid_contract, policy)
+    promote_source = api.add_human_comment(7, 3000, "/promote", "approver", "2026-08-23T02:00:00Z")
+    promote = AuthorizedCommand(
+        "promote", 1, digest, None, "approver", 3000, "/promote", "2026-08-23T02:00:00Z"
+    )
+    execute_promotion(
+        api, 55, "owner/repo", 7, promote, SourceComment.from_api(promote_source), policy,
+        90, "https://example.invalid/runs/90", repository_root="."
+    )
+    return api, digest
+
+
+def test_read_phase_ready_command_on_engineering_issue_verifies_promotion_chain(
+    valid_contract, policy, monkeypatch, capsys
+):
+    import github_governance.events as events_module
+
+    policy["rollout_mode"] = "enforce"
+    api, digest = _engineering_ready_context(valid_contract, policy)
+    ready_source = api.add_human_comment(8, 4000, "/ready-for-dev", "developer", "2026-08-23T03:30:00Z")
+    ready = AuthorizedCommand(
+        "ready", 1, digest, None, "developer", 4000, "/ready-for-dev", "2026-08-23T03:30:00Z"
+    )
+    issue = api.get_issue(8)
+    contract = extract_contract(issue["body"]).contract
+    monkeypatch.setattr(
+        events_module,
+        "_workflow_context",
+        lambda event: (
+            api, policy, 55, "owner/repo", 8, issue, contract,
+            (ready, SourceComment.from_api(ready_source)),
+        ),
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "issue_comment")
+    event = {
+        "action": "created",
+        "repository": {"id": 55, "full_name": "owner/repo"},
+        "sender": {"login": "developer"},
+        "issue": issue,
+        "comment": ready_source,
+    }
+    assert events_module._read_phase(event) == 0
+    output = capsys.readouterr().out
+    assert "PASS" in output
+    assert "PROMOTION-TARGET-COMMENT" not in output
+
+
+def test_read_phase_issue_edit_after_ready_fails_closed(
+    valid_contract, policy, monkeypatch, capsys
+):
+    import github_governance.events as events_module
+
+    policy["rollout_mode"] = "enforce"
+    api, digest = _engineering_ready_context(valid_contract, policy)
+    ready_source = api.add_human_comment(8, 4000, "/ready-for-dev", "developer", "2026-08-23T03:30:00Z")
+    ready = AuthorizedCommand(
+        "ready", 1, digest, None, "developer", 4000, "/ready-for-dev", "2026-08-23T03:30:00Z"
+    )
+    execute_ready(
+        api, 55, "owner/repo", 8, ready, SourceComment.from_api(ready_source), policy,
+        91, "https://example.invalid/runs/91", repository_root="."
+    )
+    issue = api.get_issue(8)
+    contract = extract_contract(issue["body"]).contract
+    monkeypatch.setattr(
+        events_module,
+        "_workflow_context",
+        lambda event: (
+            api, policy, 55, "owner/repo", 8, issue, contract, None,
+        ),
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "issues")
+    event = {
+        "action": "edited",
+        "repository": {"id": 55, "full_name": "owner/repo"},
+        "sender": {"login": "outsider"},
+        "issue": issue,
+    }
+    assert events_module._read_phase(event) == 0
+    output = capsys.readouterr().out
+    assert "PROMOTION-TARGET-COMMENT" in output
