@@ -240,3 +240,25 @@ def test_settings_is_human_runbook_not_yaml(repository_root):
         "Configuration Validation",
         "Security Scanning",
     ]
+
+
+def test_history_validating_workflows_checkout_full_history(repository_root):
+    import re
+
+    pattern = re.compile(r"github_governance[. ](?:events|pr-binding|gate|validate|transition)\b")
+    workflows = sorted((repository_root / ".github/workflows").glob("*.yml"))
+    assert workflows
+    checked = []
+    for path in workflows:
+        text = path.read_text(encoding="utf-8")
+        if not pattern.search(text):
+            continue
+        checked.append(path.name)
+        workflow = yaml.safe_load(text)
+        for job in workflow.get("jobs", {}).values():
+            for step in job.get("steps", []):
+                if str(step.get("uses", "")).startswith("actions/checkout"):
+                    assert step.get("with", {}).get("fetch-depth") == 0, (
+                        f"{path.name}: governance validation needs full history for base-commit checks"
+                    )
+    assert {"02-engineering-governance.yml", "03-engineering-promotion.yml"} <= set(checked)
